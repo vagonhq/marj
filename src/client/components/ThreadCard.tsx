@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Thread } from '../../shared/types';
+import type { Intent, Thread } from '../../shared/types';
 import { api } from '../api.js';
 import { renderMarkdown } from '../markdown.js';
 import { Composer } from './Composer.js';
@@ -21,14 +21,20 @@ export function ThreadCard({ thread, onChanged }: Props) {
   const [replying, setReplying] = useState(false);
   const waiting = thread.status !== 'resolved' && thread.messages.at(-1)?.role === 'user';
 
-  const reply = async (body: string) => {
-    await api.reply(thread.id, body);
+  const reply = async (body: string, intent: Intent) => {
+    await api.reply(thread.id, body, intent);
     setReplying(false);
     onChanged();
   };
 
   const setStatus = async (status: string) => {
     await api.patch(thread.id, { status });
+    onChanged();
+  };
+
+  const remove = async () => {
+    if (!window.confirm(`Delete ${thread.id} and its replies?`)) return;
+    await api.remove(thread.id);
     onChanged();
   };
 
@@ -49,6 +55,9 @@ export function ThreadCard({ thread, onChanged }: Props) {
             Reopen
           </button>
         )}
+        <button className="ghost small danger" title="Delete this thread" onClick={() => void remove()}>
+          Delete
+        </button>
       </div>
 
       {thread.messages.map((message) => (
@@ -58,6 +67,11 @@ export function ThreadCard({ thread, onChanged }: Props) {
             <div className="meta">
               <strong>{message.role === 'agent' ? 'Claude' : 'You'}</strong>
               <span>{timeAgo(message.createdAt)}</span>
+              {message.intent === 'fix' && (
+                <span className="chip fix" title="asked Claude to change the code">
+                  fix
+                </span>
+              )}
             </div>
             <div className="body" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.body) }} />
           </div>

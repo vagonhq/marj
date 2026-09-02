@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { DiffPayload, Thread } from '../shared/types';
+import type { DiffPayload, Intent, Thread } from '../shared/types';
 import { api, subscribe } from './api.js';
 import { FileCard } from './components/FileCard.js';
 import { FileList } from './components/FileList.js';
@@ -113,7 +113,7 @@ export function App() {
   ).length;
 
   const submitDraft = useCallback(
-    async (body: string) => {
+    async (body: string, intent: Intent) => {
       if (!draft) return;
       await api.createThread({
         file: draft.file,
@@ -121,6 +121,7 @@ export function App() {
         startLine: draft.startLine,
         endLine: draft.endLine,
         body,
+        intent,
       });
       setDraft(null);
       void loadThreads();

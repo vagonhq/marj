@@ -52,12 +52,17 @@ export interface DiffPayload {
 
 export type Role = 'user' | 'agent';
 
+/** What the reviewer wants back: an answer, or an answer plus the fix. */
+export type Intent = 'ask' | 'fix';
+
 export interface Message {
   id: string;
   role: Role;
   body: string;
   createdAt: string;
   seq: number;
+  /** set on user messages only */
+  intent?: Intent;
 }
 
 export type ThreadStatus = 'open' | 'answered' | 'resolved' | 'outdated';
@@ -98,6 +103,7 @@ export interface AgentEvent {
   startLine: number;
   endLine: number;
   body: string;
+  intent: Intent;
   status: ThreadStatus;
   createdAt: string;
 }

@@ -1,5 +1,5 @@
 import { Fragment, useMemo } from 'react';
-import type { DiffFile, DiffHunk, DiffLine, Side, Thread } from '../../shared/types';
+import type { DiffFile, DiffHunk, DiffLine, Intent, Side, Thread } from '../../shared/types';
 import { highlightLine, languageOf } from '../highlight.js';
 import { Composer } from './Composer.js';
 import { ThreadCard } from './ThreadCard.js';
@@ -13,7 +13,7 @@ interface Props {
   onToggle: () => void;
   draft: DraftTarget | null;
   onDraft: (draft: DraftTarget | null) => void;
-  onSubmitDraft: (body: string) => Promise<void>;
+  onSubmitDraft: (body: string, intent: Intent) => Promise<void>;
   onThreadsChanged: () => void;
 }
 
@@ -91,8 +91,8 @@ export function FileCard(props: Props) {
             <Composer
               placeholder={
                 activeDraft.startLine === activeDraft.endLine
-                  ? `Comment on line ${activeDraft.startLine} — Claude will answer here`
-                  : `Comment on lines ${activeDraft.startLine}-${activeDraft.endLine}`
+                  ? `Line ${activeDraft.startLine} — "Comment" just answers, "Comment & fix" changes the code`
+                  : `Lines ${activeDraft.startLine}-${activeDraft.endLine} — "Comment" just answers, "Comment & fix" changes the code`
               }
               autoFocus
               onCancel={() => onDraft(null)}

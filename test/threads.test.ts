@@ -75,6 +75,25 @@ describe('ThreadStore', () => {
     expect(result.events).toEqual([]);
   });
 
+  it('carries the reviewer intent onto the message and the agent event', async () => {
+    const store = await ThreadStore.load(file);
+    const thread = store.createThread({ ...input, intent: 'fix' });
+    expect(thread.messages[0].intent).toBe('fix');
+    expect(store.queue()[0].intent).toBe('fix');
+
+    store.addMessage(thread.id, 'agent', 'done');
+    store.addMessage(thread.id, 'user', 'and here?');
+    expect(store.queue()[0].intent).toBe('ask');
+    // agent messages never carry an intent
+    expect(thread.messages[1].intent).toBeUndefined();
+  });
+
+  it('defaults to ask when no intent is given', async () => {
+    const store = await ThreadStore.load(file);
+    const thread = store.createThread(input);
+    expect(thread.messages[0].intent).toBe('ask');
+  });
+
   it('agent replies do not enqueue work for the agent', async () => {
     const store = await ThreadStore.load(file);
     const thread = store.createThread({ ...input, role: 'agent', body: 'nit: rename this' });
@@ -101,5 +120,23 @@ describe('ThreadStore', () => {
     const thread = store.createThread(input);
     store.patch(thread.id, { status: 'resolved' });
     expect(store.queue()).toHaveLength(0);
+  });
+});
+
+describe('deleting threads', () => {
+  it('removes the thread and its queued work', async () => {
+    const store = await ThreadStore.load(file);
+    const thread = store.createThread(input);
+    expect(store.queue()).toHaveLength(1);
+
+    expect(store.remove(thread.id)).toBe(true);
+    expect(store.list()).toHaveLength(0);
+    expect(store.queue()).toHaveLength(0);
+    expect(store.since(0)).toHaveLength(0);
+  });
+
+  it('reports an unknown id', async () => {
+    const store = await ThreadStore.load(file);
+    expect(store.remove('t99')).toBe(false);
   });
 });

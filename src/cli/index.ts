@@ -15,6 +15,7 @@ Usage
   marj reply <id> [text]          post an agent reply (reads stdin when text is omitted)
   marj comment <file> <line> <text>   open a new thread as the agent
   marj resolve <id>               mark a thread resolved
+  marj delete <id>...             delete threads permanently
   marj stop                       stop the running server
 
 Targets
@@ -69,7 +70,7 @@ function parseArgs(argv: string[]): Args {
     positional.push(arg);
   }
 
-  const commands = new Set(['watch', 'threads', 'show', 'reply', 'comment', 'resolve', 'stop', 'serve']);
+  const commands = new Set(['watch', 'threads', 'show', 'reply', 'comment', 'resolve', 'delete', 'stop', 'serve']);
   const command = commands.has(positional[0]) ? positional.shift()! : 'serve';
   return { command, positional, flags };
 }
@@ -95,7 +96,7 @@ function formatEvent(event: AgentEvent): string {
   const body = event.body.replace(/\s*\n+\s*/g, ' ⏎ ').trim();
   const clipped = body.length > 400 ? `${body.slice(0, 397)}...` : body;
   const label = event.kind === 'new-thread' ? 'COMMENT' : 'REPLY';
-  return `${label} ${event.threadId} ${event.file}:${range} (${event.side}) — ${clipped}`;
+  return `${label} ${event.threadId} ${event.file}:${range} [${event.intent}] — ${clipped}`;
 }
 
 async function cmdServe(args: Args): Promise<void> {
@@ -207,7 +208,8 @@ async function cmdShow(args: Args): Promise<void> {
   }
   console.log('');
   for (const message of thread.messages) {
-    console.log(`--- ${message.role} (${message.createdAt}) ---`);
+    const intent = message.intent ? ` asked for: ${message.intent}` : '';
+    console.log(`--- ${message.role}${intent} (${message.createdAt}) ---`);
     console.log(message.body);
   }
 }
@@ -252,6 +254,15 @@ async function cmdResolve(args: Args): Promise<void> {
   if (!args.flags.json) console.log(`resolved ${id}`);
 }
 
+async function cmdDelete(args: Args): Promise<void> {
+  if (args.positional.length === 0) throw new Error('usage: marj delete <threadId>...');
+  const client = await connect(args.flags);
+  for (const id of args.positional) {
+    await client.remove(id);
+    if (!args.flags.json) console.log(`deleted ${id}`);
+  }
+}
+
 async function cmdStop(args: Args): Promise<void> {
   const info = await findServer(process.cwd(), args.flags.port ? num(args.flags.port, 0) : undefined);
   if (!info.pid) throw new Error('no pid recorded for the running server');
@@ -273,6 +284,7 @@ async function main(): Promise<void> {
     case 'reply': return cmdReply(args);
     case 'comment': return cmdComment(args);
     case 'resolve': return cmdResolve(args);
+    case 'delete': return cmdDelete(args);
     case 'stop': return cmdStop(args);
     default: return cmdServe(args);
   }

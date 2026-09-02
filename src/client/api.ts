@@ -1,4 +1,4 @@
-import type { DiffPayload, ServerEvent, Thread } from '../shared/types';
+import type { DiffPayload, Intent, ServerEvent, Thread } from '../shared/types';
 
 async function json<T>(input: string, init?: RequestInit): Promise<T> {
   const res = await fetch(input, {
@@ -18,11 +18,16 @@ export const api = {
     startLine: number;
     endLine: number;
     body: string;
+    intent: Intent;
   }) => json<Thread>('/api/threads', { method: 'POST', body: JSON.stringify(input) }),
-  reply: (id: string, body: string) =>
+  reply: (id: string, body: string, intent: Intent) =>
     json<unknown>(`/api/threads/${id}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ role: 'user', body }),
+      body: JSON.stringify({ role: 'user', body, intent }),
+    }),
+  remove: (id: string) =>
+    fetch(`/api/threads/${id}`, { method: 'DELETE' }).then((res) => {
+      if (!res.ok) throw new Error(`DELETE /api/threads/${id} → ${res.status}`);
     }),
   patch: (id: string, patch: { status?: string }) =>
     json<Thread>(`/api/threads/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),

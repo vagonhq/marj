@@ -3,6 +3,7 @@ import path from 'node:path';
 import type {
   AgentEvent,
   Anchor,
+  Intent,
   Message,
   Role,
   Side,
@@ -33,6 +34,7 @@ export interface CreateThreadInput {
   body: string;
   anchor?: Anchor;
   role?: Role;
+  intent?: Intent;
 }
 
 /**
@@ -103,14 +105,14 @@ export class ThreadStore {
       anchoredVersion: 0,
     };
     this.threads.set(id, thread);
-    this.appendMessage(thread, input.role ?? 'user', input.body, 'new-thread');
+    this.appendMessage(thread, input.role ?? 'user', input.body, 'new-thread', input.intent);
     return thread;
   }
 
-  addMessage(threadId: string, role: Role, body: string): Message {
+  addMessage(threadId: string, role: Role, body: string, intent?: Intent): Message {
     const thread = this.threads.get(threadId);
     if (!thread) throw new Error(`no such thread: ${threadId}`);
-    return this.appendMessage(thread, role, body, 'reply');
+    return this.appendMessage(thread, role, body, 'reply', intent);
   }
 
   private appendMessage(
@@ -118,6 +120,7 @@ export class ThreadStore {
     role: Role,
     body: string,
     kind: 'new-thread' | 'reply',
+    intent: Intent = 'ask',
   ): Message {
     const seq = ++this.seq;
     const message: Message = {
@@ -126,6 +129,7 @@ export class ThreadStore {
       body,
       createdAt: new Date().toISOString(),
       seq,
+      ...(role === 'user' ? { intent } : {}),
     };
     thread.messages.push(message);
     thread.updatedAt = message.createdAt;
@@ -142,6 +146,7 @@ export class ThreadStore {
         startLine: thread.startLine,
         endLine: thread.endLine,
         body,
+        intent,
         status: thread.status,
         createdAt: message.createdAt,
       });
@@ -162,6 +167,14 @@ export class ThreadStore {
     thread.updatedAt = new Date().toISOString();
     this.changed();
     return thread;
+  }
+
+  /** Drop a thread and anything it queued for the agent. */
+  remove(threadId: string): boolean {
+    if (!this.threads.delete(threadId)) return false;
+    this.events = this.events.filter((event) => event.threadId !== threadId);
+    this.changed();
+    return true;
   }
 
   /** Replace anchoring info after the diff was recomputed. */

@@ -40,9 +40,16 @@ Monitor({
 Each notification looks like:
 
 ```
-COMMENT t3 src/api/users.ts:42-45 (new) — bu null check yeterli mi?
-REPLY   t3 src/api/users.ts:42-45 (new) — peki diğer çağrı yeri?
+COMMENT t3 src/api/users.ts:42-45 [ask] — bu null check yeterli mi?
+REPLY   t4 src/api/users.ts:51    [fix] — burada guard ekle
 ```
+
+**The tag in brackets is the user's explicit choice, not a hint. Obey it.**
+
+- `[ask]` — answer in the thread. **Do not touch the code.** If a change is warranted, describe
+  it (a short snippet is fine) and let them ask for it. They pressed "Comment", not "Comment & fix".
+- `[fix]` — make the change, then reply saying what you changed and why. If you think the change
+  is wrong, don't do it silently: reply with your objection and ask.
 
 Comments that arrived before the watch started are replayed once, oldest first. Nothing is
 lost while you are busy — events queue and arrive in order.
@@ -59,9 +66,9 @@ marj reply t3 --typing              # shows "Claude is typing…" in the browser
 marj show t3                        # the thread plus the surrounding code, > marks the commented lines
 ```
 
-Read the real file too when the diff context is not enough. Then, if the comment asks for a
-change, make it with your normal editing tools — the browser refreshes the diff on its own and
-the thread re-anchors to the rewritten line.
+Read the real file too when the diff context is not enough. Then, **only if the comment came in
+as `[fix]`**, make the change with your normal editing tools — the browser refreshes the diff on
+its own and the thread re-anchors to the rewritten line.
 
 Post the answer (heredoc keeps markdown intact):
 
@@ -86,8 +93,9 @@ marj comment src/api/users.ts 42 "Bu kod yolu 401 yerine 500 dönüyor" --side n
 
 - **Reply in the language the user commented in.** They write Turkish, you answer Turkish.
 - Be concrete and short: what you found, what you changed. Reference symbols, not paragraphs.
+- `[ask]` never edits files. `[fix]` edits and then explains. Nothing in between.
 - If you disagree, say so in the thread with the reason. Don't silently change the code.
-- If a comment asks for something risky or out of scope, answer in the thread and ask before doing it.
+- If a `[fix]` is risky or reaches beyond the line under review, answer first and ask before doing it.
 - Never reply to a thread twice for the same message. One user message → one reply.
 - `marj threads --pending` lists anything you still owe an answer.
 

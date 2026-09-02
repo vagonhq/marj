@@ -82,7 +82,7 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   });
 
   app.post('/api/threads', (req, res) => {
-    const { file, side, startLine, endLine, body, role } = req.body ?? {};
+    const { file, side, startLine, endLine, body, role, intent } = req.body ?? {};
     if (typeof file !== 'string' || typeof body !== 'string' || !body.trim()) {
       return res.status(400).json({ error: 'file and body are required' });
     }
@@ -98,15 +98,21 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
       body,
       anchor,
       role: role === 'agent' ? 'agent' : 'user',
+      intent: intent === 'fix' ? 'fix' : 'ask',
     });
     res.status(201).json(thread);
   });
 
   app.post('/api/threads/:id/messages', (req, res) => {
-    const { role, body } = req.body ?? {};
+    const { role, body, intent } = req.body ?? {};
     if (typeof body !== 'string' || !body.trim()) return res.status(400).json({ error: 'body is required' });
     try {
-      const message = store.addMessage(req.params.id, role === 'agent' ? 'agent' : 'user', body);
+      const message = store.addMessage(
+        req.params.id,
+        role === 'agent' ? 'agent' : 'user',
+        body,
+        intent === 'fix' ? 'fix' : 'ask',
+      );
       res.status(201).json({ message, thread: store.get(req.params.id) });
     } catch (err) {
       res.status(404).json({ error: (err as Error).message });
@@ -120,6 +126,11 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     } catch (err) {
       res.status(404).json({ error: (err as Error).message });
     }
+  });
+
+  app.delete('/api/threads/:id', (req, res) => {
+    if (!store.remove(req.params.id)) return res.status(404).json({ error: 'no such thread' });
+    res.status(204).end();
   });
 
   app.get('/api/agent/queue', (_req, res) => {

@@ -46,6 +46,7 @@ export class MarjClient {
       const detail = await res.text().catch(() => '');
       throw new Error(`${method} ${route} → ${res.status} ${detail.slice(0, 200)}`);
     }
+    if (res.status === 204) return undefined as T;
     return (await res.json()) as T;
   }
 
@@ -72,8 +73,18 @@ export class MarjClient {
     return this.request('POST', `/api/threads/${encodeURIComponent(id)}/messages`, { role: 'agent', body });
   }
 
-  comment(input: { file: string; side: string; startLine: number; endLine: number; body: string }): Promise<Thread> {
+  comment(input: {
+    file: string;
+    side: string;
+    startLine: number;
+    endLine: number;
+    body: string;
+  }): Promise<Thread> {
     return this.request('POST', '/api/threads', { ...input, role: 'agent' });
+  }
+
+  remove(id: string): Promise<unknown> {
+    return this.request('DELETE', `/api/threads/${encodeURIComponent(id)}`);
   }
 
   patch(id: string, patch: { status?: string; agentTyping?: boolean }): Promise<Thread> {

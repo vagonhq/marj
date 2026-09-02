@@ -114,6 +114,7 @@ button.ghost {
 }
 button.ghost:hover { background: var(--chip); }
 button.ghost.small { padding: 2px 8px; font-size: 12px; }
+button.ghost.danger:hover { color: var(--del-fg); border-color: var(--del-fg); }
 
 button.primary {
   background: var(--accent);
@@ -224,6 +225,7 @@ button.primary:disabled { opacity: 0.5; cursor: default; }
 .chip.answered { color: var(--add-fg); }
 .chip.outdated { color: var(--fg-muted); }
 .chip.waiting { color: var(--accent); border-color: var(--accent); }
+.chip.fix { color: var(--accent); border-color: var(--accent); text-transform: uppercase; letter-spacing: 0.04em; font-size: 10px; }
 .chip.typing { color: var(--accent); border-color: var(--accent); animation: blink 1.4s ease-in-out infinite; }
 @keyframes blink { 50% { opacity: 0.45; } }
 

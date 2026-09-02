@@ -37,7 +37,13 @@ git diff | marj -        # a diff from stdin
 ```
 
 The browser opens on `http://127.0.0.1:4711`. Hover a line, hit `+`, write a comment
-(shift-click a second line for a range). `u` toggles unified/split. The diff live-refreshes as
+(shift-click a second line for a range) and send it one of two ways:
+
+- **Comment** (`⌘↵`) — Claude answers in the thread and **does not touch the code**.
+- **Comment & fix** (`⌘⇧↵`) — Claude makes the change, then says what it changed.
+
+The choice travels with the message (`[ask]` / `[fix]` in the agent's inbox), so nothing is
+left to the agent's guesswork. `u` toggles unified/split. The diff live-refreshes as
 files change, and threads follow the code they were written against — including when the line
 itself gets rewritten. Threads live in `.marj/threads.json` inside the repo, so closing the
 server does not lose the conversation.
@@ -64,6 +70,7 @@ marj show t3                # the thread plus the code around it
 marj reply t3 --typing      # "Claude is typing…" in the UI
 marj reply t3 --stdin       # post the answer, markdown welcome
 marj resolve t3
+marj delete t3
 marj comment src/a.ts 42 "this returns 500" --side new
 ```
 
@@ -76,8 +83,9 @@ protocol.
 | --- | --- |
 | `GET /api/diff` | parsed diff |
 | `GET /api/threads` · `POST /api/threads` | list / create |
-| `POST /api/threads/:id/messages` | reply (`role: user` or `agent`) |
+| `POST /api/threads/:id/messages` | reply (`role: user` or `agent`, `intent: ask` or `fix`) |
 | `PATCH /api/threads/:id` | `status`, `agentTyping` |
+| `DELETE /api/threads/:id` | delete a thread |
 | `GET /api/events` | SSE for the browser |
 | `GET /api/agent/wait?cursor=N` | long-poll: blocks until a new comment |
 | `GET /api/agent/queue` | unanswered comments, oldest first |
