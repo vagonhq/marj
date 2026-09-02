@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { promises as fs } from 'node:fs';
 import process from 'node:process';
-import { GitError, startServer } from '../server/index.js';
+import { findLiveServer, GitError, startServer } from '../server/index.js';
+import { repoRootOf } from '../server/git.js';
 import { findServer, MarjClient, NoServerError } from './api.js';
 import type { AgentEvent } from '../shared/types.js';
 
@@ -32,6 +33,7 @@ Options
   --host <h>       bind address (default 127.0.0.1)
   --context <n>    diff context lines (default 5)
   --no-open        do not open a browser
+  --force          start a second server for a repo that already has one
   --no-watch       do not refresh when files change
   --json           machine readable output
   --pending        (threads) only unanswered threads
@@ -104,6 +106,24 @@ async function cmdServe(args: Args): Promise<void> {
   // the background (no tty) does not hang waiting for input
   const stdinDiff = args.positional.includes('-') ? await readStdin() : undefined;
   const positional = args.positional.filter((p) => p !== '-');
+
+  // one server per repo; a second one would hijack .marj/server.json
+  if (args.flags.force !== true) {
+    const existing = await findLiveServer(await repoRootOf(process.cwd()));
+    if (existing) {
+      if (args.flags.json) {
+        console.log(JSON.stringify({ ...existing, reused: true }));
+      } else {
+        console.log(`marj is already running for this repo → ${existing.url}  (${existing.mode})`);
+        console.log('`marj stop` to shut it down, or `marj --force` to start another one');
+      }
+      if (args.flags.open !== false) {
+        const { default: open } = await import('open');
+        await open(existing.url).catch(() => {});
+      }
+      return;
+    }
+  }
 
   const running = await startServer({
     cwd: process.cwd(),

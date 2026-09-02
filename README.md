@@ -78,6 +78,12 @@ marj comment src/a.ts 42 "this returns 500" --side new
 Any agent that can run a shell command works — there is nothing Claude-specific in the
 protocol.
 
+## Several repos at once
+
+Every repo runs its own server: the port walks up from 4711, state lives in that repo's
+`.marj/`, and the tab is titled after the repo. Running `marj` twice in the *same* repo is
+refused (it prints the URL that is already serving) — `--force` overrides.
+
 ## HTTP API
 
 | Endpoint | Purpose |

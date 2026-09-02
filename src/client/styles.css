@@ -1,5 +1,8 @@
 /* Palette follows GitHub Primer so the page feels native next to a PR tab. */
 :root {
+  color-scheme: light;
+  --scroll-thumb: #d1d9e0;
+  --scroll-thumb-hover: #afb8c1;
   --bg: #ffffff;
   --bg-inset: #f6f8fa;
   --bg-raised: #f6f8fa;
@@ -34,6 +37,9 @@
 }
 
 :root[data-theme='dark'] {
+  color-scheme: dark;
+  --scroll-thumb: #30363d;
+  --scroll-thumb-hover: #484f58;
   --bg: #0d1117;
   --bg-inset: #010409;
   --bg-raised: #151b23;
@@ -66,6 +72,18 @@
 }
 
 * { box-sizing: border-box; }
+
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border: 3px solid transparent;
+  border-radius: 8px;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); background-clip: content-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+* { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent; }
 
 body {
   margin: 0;
@@ -147,7 +165,9 @@ button { font: inherit; cursor: pointer; }
   transition: background 0.2s, box-shadow 0.2s;
 }
 .live.pulse { background: var(--add-fg); box-shadow: 0 0 0 3px var(--add-bg); }
-.mode { color: var(--fg-muted); font-size: 12px; }
+.repo { font-weight: 600; font-size: 13px; }
+.repo::before { content: '/'; color: var(--fg-muted); font-weight: 400; margin-right: 8px; }
+.mode { color: var(--fg-muted); font-size: 12px; font-family: var(--mono); }
 .totals { display: flex; gap: 8px; font-size: 12px; font-family: var(--mono); }
 .totals .files { color: var(--fg-muted); }
 .add { color: var(--add-fg); }
@@ -172,37 +192,46 @@ button { font: inherit; cursor: pointer; }
   background: var(--bg);
 }
 .sidebar-title {
+  display: flex;
+  gap: 6px;
   font-size: 12px;
   font-weight: 600;
-  color: var(--fg-muted);
+  color: var(--fg);
   padding: 4px 8px 8px;
 }
+.sidebar-title .muted { color: var(--fg-muted); font-weight: 400; }
+
 .sidebar ul { list-style: none; margin: 0; padding: 0; }
-.sidebar button {
+
+.tree-row {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   background: transparent;
   border: 0;
   color: var(--fg);
-  padding: 4px 8px;
+  padding: 3px 8px;
   border-radius: 6px;
   text-align: left;
+  font-size: 12.5px;
+  line-height: 20px;
 }
-.sidebar button:hover { background: var(--bg-raised); }
-.sidebar button.dim { opacity: 0.55; }
-.sidebar .path { flex: 1; min-width: 0; font-size: 12.5px; display: flex; overflow: hidden; }
-.sidebar .dir {
-  color: var(--fg-muted);
+.tree-row:hover { background: var(--bg-raised); }
+.tree-row.dim { opacity: 0.5; }
+.tree-row .label {
+  flex: 1;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  direction: rtl;
 }
-.sidebar .name { white-space: nowrap; }
-.sidebar .counts { font-family: var(--mono); font-size: 11px; display: flex; gap: 4px; }
-.sidebar .badge {
+.tree-row.dir .label { color: var(--fg); }
+.tree-row .muted { color: var(--fg-muted); font-size: 11px; font-family: var(--mono); }
+.tree-row .twisty { width: 10px; color: var(--fg-muted); font-size: 10px; }
+.tree-row .folder { color: var(--accent); flex: none; opacity: 0.85; }
+.tree-row .counts { font-family: var(--mono); font-size: 11px; display: flex; gap: 4px; }
+.tree-row .badge {
   background: var(--accent);
   color: #fff;
   border-radius: 999px;
@@ -210,7 +239,7 @@ button { font: inherit; cursor: pointer; }
   padding: 0 6px;
   line-height: 18px;
 }
-.status { width: 14px; text-align: center; font-family: var(--mono); font-size: 11px; color: var(--fg-muted); }
+.status { width: 12px; text-align: center; font-family: var(--mono); font-size: 11px; color: var(--fg-muted); }
 .status.added { color: var(--add-fg); }
 .status.deleted { color: var(--del-fg); }
 .status.renamed { color: var(--accent); }

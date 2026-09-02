@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DiffPayload, Intent, Thread } from '../shared/types';
 import { api, subscribe } from './api.js';
 import { FileCard } from './components/FileCard.js';
-import { FileList } from './components/FileList.js';
+import { FileTree } from './components/FileTree.js';
 import type { DraftTarget } from './components/types.js';
 
 type ViewMode = 'unified' | 'split';
@@ -66,6 +66,12 @@ export function App() {
       if (event.type === 'threads:changed') void loadThreads();
     });
   }, [loadDiff, loadThreads]);
+
+  // several repos can be open in different tabs — name each one
+  const repoName = diff?.repoRoot.split('/').filter(Boolean).pop() ?? '';
+  useEffect(() => {
+    if (repoName) document.title = `${repoName} · ${diff?.mode ?? ''} — marj`;
+  }, [repoName, diff?.mode]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -163,9 +169,10 @@ export function App() {
           marj
           <span className={`live ${pulse ? 'pulse' : ''}`} title="live: the diff refreshes as files change" />
         </div>
-        <div className="mode" title={diff?.repoRoot}>
-          {diff?.mode ?? 'loading…'}
+        <div className="repo" title={diff?.repoRoot}>
+          {repoName}
         </div>
+        <div className="mode">{diff?.mode ?? 'loading…'}</div>
         <div className="totals">
           <span className="add">+{totals.add}</span>
           <span className="del">-{totals.del}</span>
@@ -182,10 +189,10 @@ export function App() {
       </header>
 
       <div className="workspace">
-        <FileList
+        <FileTree
           files={diff?.files ?? []}
           threadsByFile={threadsByFile}
-          collapsed={collapsed}
+          collapsedFiles={collapsed}
           onSelect={scrollToFile}
         />
         <main className="stream">

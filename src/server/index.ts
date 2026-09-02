@@ -1,6 +1,5 @@
 import { promises as fs } from 'node:fs';
 import http from 'node:http';
-import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
@@ -30,6 +29,34 @@ export interface RunningServer {
 }
 
 export const MARJ_DIR = '.marj';
+
+/**
+ * A marj already serving this repo, or null. Several repos can run side by side
+ * (each picks its own port), but a second server for the *same* repo would
+ * overwrite server.json and leave the CLI talking to the wrong one.
+ */
+export async function findLiveServer(repoRoot: string): Promise<ServerInfo | null> {
+  const infoPath = path.join(repoRoot, MARJ_DIR, 'server.json');
+  let info: ServerInfo;
+  try {
+    info = JSON.parse(await fs.readFile(infoPath, 'utf8')) as ServerInfo;
+  } catch {
+    return null;
+  }
+  try {
+    process.kill(info.pid, 0);
+  } catch {
+    return null; // recorded process is gone
+  }
+  try {
+    const res = await fetch(`${info.url}/api/diff`, { signal: AbortSignal.timeout(1500) });
+    if (!res.ok) return null;
+    const payload = (await res.json()) as { repoRoot?: string };
+    return payload.repoRoot === repoRoot ? info : null;
+  } catch {
+    return null; // port recorded but nothing answering
+  }
+}
 
 export async function startServer(opts: StartOptions): Promise<RunningServer> {
   const context = opts.context ?? 5;
@@ -168,9 +195,10 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   app.use(express.static(CLIENT_DIR, { index: 'index.html' }));
   app.get('*', (_req, res) => res.sendFile(path.join(CLIENT_DIR, 'index.html')));
 
-  const port = await pickPort(host, opts.port ?? 4711);
+  // probing for a free port then binding it is racy when two repos start at
+  // once, so treat EADDRINUSE as "try the next one"
   const server = http.createServer(app);
-  await new Promise<void>((resolve) => server.listen(port, host, resolve));
+  const port = await listenFrom(server, host, opts.port ?? 4711);
 
   const stopWatching = opts.stdinDiff || opts.watch === false
     ? () => {}
@@ -241,21 +269,25 @@ async function ensureGitExclude(repoRoot: string): Promise<void> {
   }
 }
 
-async function pickPort(host: string, preferred: number): Promise<number> {
+async function listenFrom(server: http.Server, host: string, preferred: number): Promise<number> {
   for (let port = preferred; port < preferred + 50; port++) {
-    if (await isFree(host, port)) return port;
+    const bound = await new Promise<boolean>((resolve, reject) => {
+      const onError = (err: NodeJS.ErrnoException) => {
+        server.removeListener('listening', onListening);
+        if (err.code === 'EADDRINUSE' || err.code === 'EACCES') resolve(false);
+        else reject(err);
+      };
+      const onListening = () => {
+        server.removeListener('error', onError);
+        resolve(true);
+      };
+      server.once('error', onError);
+      server.once('listening', onListening);
+      server.listen(port, host);
+    });
+    if (bound) return port;
   }
-  return 0;
-}
-
-function isFree(host: string, port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const tester = net
-      .createServer()
-      .once('error', () => resolve(false))
-      .once('listening', () => tester.close(() => resolve(true)))
-      .listen(port, host);
-  });
+  throw new Error(`no free port between ${preferred} and ${preferred + 49}`);
 }
 
 export { GitError };

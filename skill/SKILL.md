@@ -99,7 +99,24 @@ marj comment src/api/users.ts 42 "Bu kod yolu 401 yerine 500 dönüyor" --side n
 - Never reply to a thread twice for the same message. One user message → one reply.
 - `marj threads --pending` lists anything you still owe an answer.
 
-## 5. Finish
+## 5. Several repos at once
+
+Each repo gets its own server (its own port, its own `.marj/`), so you can review two
+workspaces side by side: start `marj` in each and arm **one Monitor per repo**. Give each
+watch a description naming the repo — `marj comments (vagon-core)` — because notifications
+from both land in the same conversation and the thread ids (`t1`, `t2`) repeat across repos.
+
+Every follow-up command must run in that repo's directory, since the CLI finds the server
+through `.marj/server.json` under the repo root:
+
+```bash
+cd /path/to/repo-a && marj show t3
+```
+
+Starting a second `marj` in a repo that already has one is refused; it prints the running URL
+instead. Use `marj --force` only if you really want two.
+
+## 6. Finish
 
 `marj stop` shuts the server down. The threads stay in `.marj/threads.json`, so a later
 `marj` in the same repo brings the whole conversation back.
