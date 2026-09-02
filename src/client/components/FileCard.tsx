@@ -1,4 +1,4 @@
-import { Fragment, useMemo } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { DiffFile, DiffHunk, DiffLine, Intent, Side, Thread } from '../../shared/types';
 import { highlightLine, languageOf } from '../highlight.js';
 import { Composer } from './Composer.js';
@@ -17,22 +17,27 @@ interface Props {
   onThreadsChanged: () => void;
 }
 
-/** Where a line lives: deletions belong to the old side, everything else to the new. */
-function anchorOf(line: DiffLine): { side: Side; no: number } | null {
-  if (line.type === 'del') return line.oldNo === null ? null : { side: 'old', no: line.oldNo };
-  return line.newNo === null ? null : { side: 'new', no: line.newNo };
+/**
+ * One selectable row of the rendered diff. Selection works on row order rather
+ * than line numbers so a drag can cross deletions and additions the way it does
+ * on GitHub; the numbers that end up on the thread are the ones belonging to the
+ * side the drag started on.
+ */
+interface Row {
+  index: number;
+  hunkIndex: number;
+  /** unified: the single line. split: the two halves. */
+  line?: DiffLine;
+  left?: DiffLine | null;
+  right?: DiffLine | null;
+  oldNo: number | null;
+  newNo: number | null;
 }
 
-interface SplitRow {
-  left: DiffLine | null;
-  right: DiffLine | null;
-}
-
-function toSplitRows(hunk: DiffHunk): SplitRow[] {
-  const rows: SplitRow[] = [];
+function splitPairs(hunk: DiffHunk): { left: DiffLine | null; right: DiffLine | null }[] {
+  const rows: { left: DiffLine | null; right: DiffLine | null }[] = [];
   let dels: DiffLine[] = [];
   let adds: DiffLine[] = [];
-
   const flush = () => {
     for (let i = 0; i < Math.max(dels.length, adds.length); i++) {
       rows.push({ left: dels[i] ?? null, right: adds[i] ?? null });
@@ -40,7 +45,6 @@ function toSplitRows(hunk: DiffHunk): SplitRow[] {
     dels = [];
     adds = [];
   };
-
   for (const line of hunk.lines) {
     if (line.type === 'del') dels.push(line);
     else if (line.type === 'add') adds.push(line);
@@ -53,51 +57,158 @@ function toSplitRows(hunk: DiffHunk): SplitRow[] {
   return rows;
 }
 
+function buildRows(file: DiffFile, view: 'unified' | 'split'): Row[] {
+  const rows: Row[] = [];
+  file.hunks.forEach((hunk, hunkIndex) => {
+    if (view === 'unified') {
+      for (const line of hunk.lines) {
+        rows.push({ index: rows.length, hunkIndex, line, oldNo: line.oldNo, newNo: line.newNo });
+      }
+    } else {
+      for (const pair of splitPairs(hunk)) {
+        rows.push({
+          index: rows.length,
+          hunkIndex,
+          left: pair.left,
+          right: pair.right,
+          oldNo: pair.left && pair.left.type !== 'add' ? pair.left.oldNo : null,
+          newNo: pair.right && pair.right.type !== 'del' ? pair.right.newNo : null,
+        });
+      }
+    }
+  });
+  return rows;
+}
+
+const numberOn = (row: Row, side: Side) => (side === 'old' ? row.oldNo : row.newNo);
+
+const STATUS_LABEL: Record<DiffFile['status'], string> = {
+  added: 'added',
+  deleted: 'deleted',
+  modified: 'modified',
+  renamed: 'renamed',
+};
+
 export function FileCard(props: Props) {
   const { file, view, threads, collapsed, onToggle, draft, onDraft, onSubmitDraft, onThreadsChanged } = props;
   const language = useMemo(() => languageOf(file.path), [file.path]);
+  const rows = useMemo(() => buildRows(file, view), [file, view]);
 
-  const anchored = threads.filter((t) => t.status !== 'outdated');
-  const outdated = threads.filter((t) => t.status === 'outdated');
+  /** the visual span of the selection being drawn, in row indices */
+  const [span, setSpan] = useState<{ side: Side; from: number; to: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
 
-  const threadsAt = (side: Side, no: number) =>
-    anchored.filter((thread) => thread.side === side && thread.endLine === no);
+  const mine = draft && draft.file === file.path ? draft : null;
 
-  const draftAt = (side: Side, no: number) =>
-    draft && draft.side === side && draft.endLine === no ? draft : null;
+  // the draft can be cancelled from anywhere (Escape, another file) — drop the span with it
+  useEffect(() => {
+    if (!mine) setSpan(null);
+  }, [mine]);
 
-  const openDraft = (event: React.MouseEvent, side: Side, no: number) => {
-    if (event.shiftKey && draft && draft.side === side && no > draft.startLine) {
-      onDraft({ ...draft, endLine: no });
-      return;
-    }
-    onDraft({ file: file.path, side, startLine: no, endLine: no });
+  // the composer only appears once the drag ends: opening it mid-drag would
+  // push the rows out from under the cursor
+  const spanRef = useRef(span);
+  spanRef.current = span;
+
+  useEffect(() => {
+    if (!dragging) return;
+    const stop = () => {
+      setDragging(false);
+      const current = spanRef.current;
+      if (current) publish(current.side, current.from, current.to);
+    };
+    window.addEventListener('mouseup', stop);
+    window.addEventListener('blur', stop);
+    return () => {
+      window.removeEventListener('mouseup', stop);
+      window.removeEventListener('blur', stop);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dragging]);
+
+  /** turn a row span into the line range the thread will carry */
+  const publish = (side: Side, from: number, to: number) => {
+    const lo = Math.min(from, to);
+    const hi = Math.max(from, to);
+    const numbers = rows
+      .slice(lo, hi + 1)
+      .map((row) => numberOn(row, side))
+      .filter((no): no is number => no !== null);
+    if (numbers.length === 0) return;
+    onDraft({
+      file: file.path,
+      side,
+      startLine: Math.min(...numbers),
+      endLine: Math.max(...numbers),
+    });
   };
 
-  const inDraftRange = (side: Side, no: number) =>
-    !!draft && draft.side === side && no >= draft.startLine && no <= draft.endLine;
+  const startSelect = (event: React.MouseEvent, side: Side, index: number) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    if (event.shiftKey && span && span.side === side) {
+      setSpan({ ...span, to: index });
+      publish(side, span.from, index);
+      return;
+    }
+    setSpan({ side, from: index, to: index });
+    setDragging(true);
+  };
 
-  const overlay = (side: Side, no: number, colSpan: number) => {
-    const items = threadsAt(side, no);
-    const activeDraft = draftAt(side, no);
-    if (items.length === 0 && !activeDraft) return null;
+  /**
+   * The side comes from where the drag started, not from the row under the
+   * cursor — otherwise a drag that crosses a deleted line into added ones would
+   * stop dead. `expect` guards the split view, where each column is one side.
+   */
+  const extendSelect = (index: number, expect?: Side) => {
+    if (!dragging || !span) return;
+    if (expect && span.side !== expect) return;
+    if (span.to === index) return;
+    setSpan({ ...span, to: index });
+  };
+
+  const selectedRow = (index: number) =>
+    !!span &&
+    (dragging || !!mine) &&
+    index >= Math.min(span.from, span.to) &&
+    index <= Math.max(span.from, span.to);
+
+  /** the composer sits under the last row of the visual span */
+  const composerRow = span && !dragging ? Math.max(span.from, span.to) : -1;
+
+  const threadsAt = (side: Side, no: number) =>
+    threads.filter((t) => t.status !== 'outdated' && t.side === side && t.endLine === no);
+
+  const gutterButton = (side: Side, no: number, index: number) => (
+    <button
+      className="add-comment"
+      title="Comment — drag down the gutter or shift-click to select more lines"
+      aria-label={`Comment on line ${no}`}
+      onMouseDown={(event) => startSelect(event, side, index)}
+    >
+      +
+    </button>
+  );
+
+  const overlay = (row: Row, colSpan: number) => {
+    const items = [
+      ...(row.oldNo !== null ? threadsAt('old', row.oldNo) : []),
+      ...(row.newNo !== null ? threadsAt('new', row.newNo) : []),
+    ];
+    const showDraft = !!mine && composerRow === row.index;
+    if (items.length === 0 && !showDraft) return null;
+    const header =
+      mine && mine.startLine === mine.endLine
+        ? `Commenting on line ${mine.startLine}`
+        : `Commenting on lines ${mine?.startLine}–${mine?.endLine}`;
     return (
       <tr className="overlay-row">
         <td colSpan={colSpan}>
           {items.map((thread) => (
             <ThreadCard key={thread.id} thread={thread} onChanged={onThreadsChanged} />
           ))}
-          {activeDraft && (
-            <Composer
-              placeholder={
-                activeDraft.startLine === activeDraft.endLine
-                  ? `Line ${activeDraft.startLine} — "Comment" just answers, "Comment & fix" changes the code`
-                  : `Lines ${activeDraft.startLine}-${activeDraft.endLine} — "Comment" just answers, "Comment & fix" changes the code`
-              }
-              autoFocus
-              onCancel={() => onDraft(null)}
-              onSubmit={onSubmitDraft}
-            />
+          {showDraft && (
+            <Composer header={header} autoFocus onCancel={() => onDraft(null)} onSubmit={onSubmitDraft} />
           )}
         </td>
       </tr>
@@ -108,71 +219,77 @@ export function FileCard(props: Props) {
     <span className="code" dangerouslySetInnerHTML={{ __html: highlightLine(text, language) || '&nbsp;' }} />
   );
 
-  const unifiedRows = (hunk: DiffHunk) =>
-    hunk.lines.map((line, index) => {
-      const anchor = anchorOf(line);
-      const key = `${line.type}-${line.oldNo ?? 'x'}-${line.newNo ?? 'x'}-${index}`;
-      return (
-        <Fragment key={key}>
-          <tr className={`line ${line.type} ${anchor && inDraftRange(anchor.side, anchor.no) ? 'drafting' : ''}`}>
-            <td className="num old">{line.oldNo ?? ''}</td>
-            <td className="num new">{line.newNo ?? ''}</td>
-            <td className="gutter">
-              {anchor && (
-                <button
-                  className="add-comment"
-                  title="Comment (shift-click to extend the range)"
-                  onClick={(event) => openDraft(event, anchor.side, anchor.no)}
-                >
-                  +
-                </button>
-              )}
-            </td>
-            <td className="content">
-              <span className="marker">{line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' '}</span>
-              {renderCode(line.text)}
-            </td>
-          </tr>
-          {anchor && overlay(anchor.side, anchor.no, 4)}
-        </Fragment>
-      );
-    });
+  const unifiedRow = (row: Row) => {
+    const line = row.line!;
+    const side: Side = line.type === 'del' ? 'old' : 'new';
+    const no = numberOn(row, side);
+    const selected = selectedRow(row.index);
+    return (
+      <Fragment key={`u${row.index}`}>
+        <tr
+          className={`line ${line.type}${selected ? ' selected' : ''}`}
+          onMouseEnter={() => extendSelect(row.index)}
+        >
+          <td className="num old" onMouseDown={(e) => no !== null && startSelect(e, side, row.index)}>
+            {no !== null && gutterButton(side, no, row.index)}
+            <span className="n">{line.oldNo ?? ''}</span>
+          </td>
+          <td className="num new" onMouseDown={(e) => no !== null && startSelect(e, side, row.index)}>
+            <span className="n">{line.newNo ?? ''}</span>
+          </td>
+          <td className="content">
+            <span className="marker">{line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' '}</span>
+            {renderCode(line.text)}
+          </td>
+        </tr>
+        {overlay(row, 3)}
+      </Fragment>
+    );
+  };
 
-  const splitRows = (hunk: DiffHunk) =>
-    toSplitRows(hunk).map((row, index) => {
-      const leftNo = row.left?.oldNo ?? null;
-      const rightNo = row.right?.newNo ?? null;
-      return (
-        <Fragment key={`s-${index}-${leftNo ?? 'x'}-${rightNo ?? 'x'}`}>
-          <tr className="line split">
-            <td className="num old">{leftNo ?? ''}</td>
-            <td className="gutter">
-              {leftNo !== null && row.left?.type === 'del' && (
-                <button className="add-comment" onClick={(event) => openDraft(event, 'old', leftNo)}>
-                  +
-                </button>
-              )}
-            </td>
-            <td className={`content ${row.left ? row.left.type : 'filler'}`}>
-              {row.left ? renderCode(row.left.text) : null}
-            </td>
-            <td className="num new">{rightNo ?? ''}</td>
-            <td className="gutter">
-              {rightNo !== null && (
-                <button className="add-comment" onClick={(event) => openDraft(event, 'new', rightNo)}>
-                  +
-                </button>
-              )}
-            </td>
-            <td className={`content ${row.right ? row.right.type : 'filler'}`}>
-              {row.right ? renderCode(row.right.text) : null}
-            </td>
-          </tr>
-          {leftNo !== null && row.left?.type === 'del' && overlay('old', leftNo, 6)}
-          {rightNo !== null && overlay('new', rightNo, 6)}
-        </Fragment>
-      );
-    });
+  const splitRow = (row: Row) => {
+    const selected = selectedRow(row.index);
+    const leftSelected = selected && span?.side === 'old';
+    const rightSelected = selected && span?.side === 'new';
+    return (
+      <Fragment key={`s${row.index}`}>
+        <tr className="line split">
+          <td
+            className={`num old${leftSelected ? ' selected' : ''}`}
+            onMouseDown={(e) => row.oldNo !== null && startSelect(e, 'old', row.index)}
+            onMouseEnter={() => extendSelect(row.index, 'old')}
+          >
+            {row.oldNo !== null && row.left?.type === 'del' && gutterButton('old', row.oldNo, row.index)}
+            <span className="n">{row.oldNo ?? ''}</span>
+          </td>
+          <td
+            className={`content ${row.left ? row.left.type : 'filler'}${leftSelected ? ' selected' : ''}`}
+            onMouseEnter={() => extendSelect(row.index, 'old')}
+          >
+            {row.left ? renderCode(row.left.text) : null}
+          </td>
+          <td
+            className={`num new${rightSelected ? ' selected' : ''}`}
+            onMouseDown={(e) => row.newNo !== null && startSelect(e, 'new', row.index)}
+            onMouseEnter={() => extendSelect(row.index, 'new')}
+          >
+            {row.newNo !== null && gutterButton('new', row.newNo, row.index)}
+            <span className="n">{row.newNo ?? ''}</span>
+          </td>
+          <td
+            className={`content ${row.right ? row.right.type : 'filler'}${rightSelected ? ' selected' : ''}`}
+            onMouseEnter={() => extendSelect(row.index, 'new')}
+          >
+            {row.right ? renderCode(row.right.text) : null}
+          </td>
+        </tr>
+        {overlay(row, 4)}
+      </Fragment>
+    );
+  };
+
+  const outdated = threads.filter((t) => t.status === 'outdated');
+  const colSpan = view === 'unified' ? 3 : 4;
 
   return (
     <section className="file-card" id={`file-${file.path}`}>
@@ -184,13 +301,17 @@ export function FileCard(props: Props) {
           {file.oldPath && file.oldPath !== file.path && <span className="old-path">{file.oldPath} → </span>}
           {file.path}
         </span>
-        <span className={`chip ${file.status}`}>{file.status}</span>
-        {file.generated && <span className="chip generated">generated</span>}
+        {file.status !== 'modified' && <span className="chip">{STATUS_LABEL[file.status]}</span>}
+        {file.generated && <span className="chip">generated</span>}
         <span className="spacer" />
-        {threads.length > 0 && <span className="chip comments">{threads.length} 💬</span>}
+        {threads.length > 0 && (
+          <span className="chip comments">
+            {threads.length} comment{threads.length > 1 ? 's' : ''}
+          </span>
+        )}
         <span className="counts">
           <span className="add">+{file.additions}</span>
-          <span className="del">-{file.deletions}</span>
+          <span className="del">−{file.deletions}</span>
         </span>
       </header>
 
@@ -206,40 +327,39 @@ export function FileCard(props: Props) {
           )}
 
           {file.binary ? (
-            <div className="binary">Binary file not shown</div>
+            <div className="notice">Binary file not shown</div>
           ) : file.hunks.length === 0 ? (
-            <div className="binary">No textual changes</div>
+            <div className="notice">No textual changes</div>
           ) : (
-            <table className={`diff ${view}`}>
+            <table className={`diff ${view}${dragging ? ' selecting' : ''}`}>
               <colgroup>
                 {view === 'unified' ? (
                   <>
                     <col className="num-col" />
                     <col className="num-col" />
-                    <col className="gutter-col" />
                     <col />
                   </>
                 ) : (
                   <>
                     <col className="num-col" />
-                    <col className="gutter-col" />
-                    <col style={{ width: '50%' }} />
+                    <col style={{ width: 'calc(50% - 50px)' }} />
                     <col className="num-col" />
-                    <col className="gutter-col" />
                     <col />
                   </>
                 )}
               </colgroup>
               <tbody>
-                {file.hunks.map((hunk, index) => (
-                  <Fragment key={`h${index}`}>
+                {file.hunks.map((hunk, hunkIndex) => (
+                  <Fragment key={`h${hunkIndex}`}>
                     <tr className="hunk-head">
-                      <td colSpan={view === 'unified' ? 4 : 6}>
+                      <td colSpan={colSpan}>
                         @@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},{hunk.newLines} @@
                         {hunk.section && <span className="section"> {hunk.section}</span>}
                       </td>
                     </tr>
-                    {view === 'unified' ? unifiedRows(hunk) : splitRows(hunk)}
+                    {rows
+                      .filter((row) => row.hunkIndex === hunkIndex)
+                      .map((row) => (view === 'unified' ? unifiedRow(row) : splitRow(row)))}
                   </Fragment>
                 ))}
               </tbody>

@@ -36,8 +36,9 @@ marj main feature        # two revisions
 git diff | marj -        # a diff from stdin
 ```
 
-The browser opens on `http://127.0.0.1:4711`. Hover a line, hit `+`, write a comment
-(shift-click a second line for a range) and send it one of two ways:
+The browser opens on `http://127.0.0.1:4711`. Hover a line and hit `+` to comment on it — or
+**drag down the gutter** (or shift-click a second line) to select a range, exactly like on
+GitHub. Then send it one of two ways:
 
 - **Comment** (`⌘↵`) — Claude answers in the thread and **does not touch the code**.
 - **Comment & fix** (`⌘⇧↵`) — Claude makes the change, then says what it changed.

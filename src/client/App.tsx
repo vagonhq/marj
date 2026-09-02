@@ -173,10 +173,10 @@ export function App() {
         </div>
         <div className="spacer" />
         {pending > 0 && <div className="pending">{pending} waiting on Claude</div>}
-        <button className="ghost" onClick={() => setView(view === 'unified' ? 'split' : 'unified')}>
+        <button className="btn" onClick={() => setView(view === 'unified' ? 'split' : 'unified')}>
           {view === 'unified' ? 'Split' : 'Unified'}
         </button>
-        <button className="ghost" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+        <button className="btn" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
           {theme === 'dark' ? 'Light' : 'Dark'}
         </button>
       </header>

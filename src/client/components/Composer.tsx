@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import type { Intent } from '../../shared/types';
 
 interface Props {
-  placeholder: string;
+  /** small grey line above the textarea, e.g. "Commenting on lines 12–15" */
+  header?: string;
+  placeholder?: string;
   autoFocus?: boolean;
   /** "Comment" for a new thread, "Reply" inside one */
   submitLabel?: string;
@@ -10,7 +12,14 @@ interface Props {
   onCancel?: () => void;
 }
 
-export function Composer({ placeholder, autoFocus, submitLabel = 'Comment', onSubmit, onCancel }: Props) {
+export function Composer({
+  header,
+  placeholder = 'Leave a comment',
+  autoFocus,
+  submitLabel = 'Comment',
+  onSubmit,
+  onCancel,
+}: Props) {
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -33,11 +42,12 @@ export function Composer({ placeholder, autoFocus, submitLabel = 'Comment', onSu
 
   return (
     <div className="composer">
+      {header && <div className="composer-head">{header}</div>}
       <textarea
         ref={ref}
         value={value}
         placeholder={placeholder}
-        rows={Math.min(10, Math.max(2, value.split('\n').length))}
+        rows={Math.min(12, Math.max(3, value.split('\n').length + 1))}
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
@@ -47,14 +57,16 @@ export function Composer({ placeholder, autoFocus, submitLabel = 'Comment', onSu
         }}
       />
       <div className="composer-actions">
-        <span className="hint">⌘↵ answer · ⌘⇧↵ fix</span>
+        <span className="hint">
+          <kbd>⌘↵</kbd> answer · <kbd>⌘⇧↵</kbd> fix
+        </span>
         {onCancel && (
-          <button className="ghost" onClick={onCancel} disabled={busy}>
+          <button className="btn" onClick={onCancel} disabled={busy}>
             Cancel
           </button>
         )}
         <button
-          className="ghost"
+          className="btn"
           title="Claude answers here without touching the code"
           onClick={() => void submit('ask')}
           disabled={busy || !value.trim()}
@@ -62,7 +74,7 @@ export function Composer({ placeholder, autoFocus, submitLabel = 'Comment', onSu
           {busy ? 'Sending…' : submitLabel}
         </button>
         <button
-          className="primary"
+          className="btn primary"
           title="Claude changes the code, then answers here"
           onClick={() => void submit('fix')}
           disabled={busy || !value.trim()}
