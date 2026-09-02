@@ -1,6 +1,6 @@
 ---
-name: marj
-description: "Open a GitHub-style review UI for local git changes and stay in the loop: the user comments on a line in the browser, you answer in that thread and fix the code. Use when the user says /marj, asks to review local changes together, or wants to talk about a diff line by line."
+description: "Open a GitHub-style review UI for local git changes and stay in the loop: the user comments on a line in the browser, you answer in that thread and fix the code. Use when the user says /marj:review or /marj, asks to review local changes together, or wants to talk about a diff line by line."
+argument-hint: "[revision | a..b | --staged]"
 ---
 
 # marj
@@ -8,6 +8,15 @@ description: "Open a GitHub-style review UI for local git changes and stay in th
 `marj` serves the current repo's diff at `http://127.0.0.1:<port>` and turns every comment
 the user leaves into a line on stdout that reaches you as a notification. You reply into the
 same thread, and your answer appears under that line in the browser.
+
+## 0. The `marj` command
+
+The plugin puts `marj` on PATH (a wrapper that uses a global install if there is one, else
+`npx -y marj`). If `marj` is somehow missing, `npx -y marj` is the same thing. If that fails
+too there is no Node ≥ 20 — tell the user.
+
+The user may pass a target after the command (`/marj:review main..feature`); use it as the
+`marj` argument.
 
 ## 1. Start the server
 
@@ -23,8 +32,6 @@ open <url>            # macOS; xdg-open elsewhere
 
 Targets: `marj` (working tree vs HEAD, the default), `marj --staged`, `marj <commit>`,
 `marj main..feature`, `marj <a> <b>`. Pass the user's intent through; ask only if truly unclear.
-
-If `marj` is not on PATH, use `npx marj` or `node <marj checkout>/dist/server/cli/index.js`.
 
 ## 2. Arm the watch — do this immediately after starting
 

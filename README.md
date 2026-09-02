@@ -20,6 +20,8 @@ Diffsmith does the round trip but is closed source and paid. marj is the round t
 
 ## Install
 
+As a Claude Code plugin (see below), or as a plain CLI:
+
 ```bash
 npm install -g marj      # or: npx marj
 ```
@@ -57,16 +59,24 @@ server does not lose the conversation.
 
 ## Use it with Claude Code
 
-Install the skill once:
+marj is a Claude Code plugin. Inside Claude Code:
 
-```bash
-mkdir -p ~/.claude/skills/marj && cp "$(npm root -g)/marj/skill/SKILL.md" ~/.claude/skills/marj/
+```
+/plugin marketplace add sezeristif/marj
+/plugin install marj@marj
 ```
 
-Then in any repo, tell Claude `/marj`. It starts the server, opens the browser and arms a
-watch. From then on every comment you write in the browser lands in that session, in order,
-and its answer appears under the line. Ask it to fix something and it edits the file — the
-diff refreshes on its own.
+That adds the `/marj:review` skill and puts the `marj` command on PATH (a wrapper that uses a
+global install when there is one and `npx -y marj` otherwise — nothing else to install beyond
+Node ≥ 20).
+
+Then, in any repo, say `/marj:review` (or `/marj:review main..feature`). Claude starts the
+server, opens the browser and arms a watch. From then on every comment you write in the browser
+lands in that session, in order, and its answer appears under the line. "Comment & fix" makes
+it edit the file — the diff refreshes on its own.
+
+Prefer not to use the plugin? `npm i -g marj` and copy `skills/review/SKILL.md` to
+`~/.claude/skills/marj/SKILL.md`; the skill is then `/marj`.
 
 Under the hood the session just runs the agent-facing half of the CLI:
 

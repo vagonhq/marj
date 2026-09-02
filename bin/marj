@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Shipped with the Claude Code plugin so `marj` is on PATH while the plugin is
+# enabled. Prefers a real install next to node (npm i -g marj), otherwise runs
+# the published package through npx — nothing to install by hand.
+set -euo pipefail
+
+node_bin="$(command -v node 2>/dev/null || true)"
+if [ -z "$node_bin" ]; then
+  echo "marj: Node.js 20 or newer is required (https://nodejs.org)" >&2
+  exit 1
+fi
+
+installed="$(dirname "$node_bin")/marj"
+if [ -x "$installed" ] && [ "$installed" != "${BASH_SOURCE[0]}" ]; then
+  exec "$installed" "$@"
+fi
+
+exec npx -y marj@latest "$@"

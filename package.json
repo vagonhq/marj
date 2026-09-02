@@ -13,13 +13,22 @@
     "cli"
   ],
   "license": "MIT",
+  "author": "Sezer İstif (https://github.com/sezeristif)",
+  "homepage": "https://github.com/sezeristif/marj#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sezeristif/marj.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sezeristif/marj/issues"
+  },
   "type": "module",
   "bin": {
     "marj": "dist/server/cli/index.js"
   },
   "files": [
     "dist",
-    "skill",
+    "skills",
     "README.md",
     "LICENSE"
   ],
@@ -33,7 +42,8 @@
     "dev:server": "tsc -p tsconfig.server.json --watch",
     "dev:client": "vite",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit"
+    "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
     "chokidar": "^4.0.3",
