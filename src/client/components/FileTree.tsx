@@ -16,7 +16,7 @@ function FolderIcon() {
 interface Props {
   files: DiffFile[];
   threadsByFile: Map<string, Thread[]>;
-  collapsedFiles: Set<string>;
+  viewed: Map<string, string>;
   onSelect: (path: string) => void;
 }
 
@@ -90,7 +90,7 @@ const STATUS_LABEL: Record<DiffFile['status'], string> = {
   renamed: 'R',
 };
 
-export function FileTree({ files, threadsByFile, collapsedFiles, onSelect }: Props) {
+export function FileTree({ files, threadsByFile, viewed, onSelect }: Props) {
   const tree = useMemo(() => buildTree(files), [files]);
   const [folded, setFolded] = useState<Set<string>>(new Set());
 
@@ -125,12 +125,14 @@ export function FileTree({ files, threadsByFile, collapsedFiles, onSelect }: Pro
     return (
       <li key={`f:${node.file.path}`}>
         <button
-          className={`tree-row file${collapsedFiles.has(node.file.path) ? ' dim' : ''}`}
+          className={`tree-row file${viewed.has(node.file.path) ? ' dim' : ''}`}
           style={indent}
           onClick={() => onSelect(node.file.path)}
           title={node.file.path}
         >
-          <span className={`status ${node.file.status}`}>{STATUS_LABEL[node.file.status]}</span>
+          <span className={`status ${node.file.status}`}>
+            {viewed.has(node.file.path) ? '✓' : STATUS_LABEL[node.file.status]}
+          </span>
           <span className="label">{node.name}</span>
           {open > 0 && <span className="badge">{open}</span>}
           <span className="counts">

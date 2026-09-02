@@ -43,6 +43,12 @@ GitHub. Then send it one of two ways:
 - **Comment** (`⌘↵`) — Claude answers in the thread and **does not touch the code**.
 - **Comment & fix** (`⌘⇧↵`) — Claude makes the change, then says what it changed.
 
+Each file header carries a **Viewed** checkbox that folds the file away and counts towards the
+`3/12 reviewed` tally in the top bar; it clears itself if that file changes again. When Claude
+answers, a toast slides in at the top right and a chime plays — click 🔔 once to arm it (that
+also grants desktop notifications, which fire when the tab is in the background). 🔕 turns it
+all off.
+
 The choice travels with the message (`[ask]` / `[fix]` in the agent's inbox), so nothing is
 left to the agent's guesswork. `u` toggles unified/split. The diff live-refreshes as
 files change, and threads follow the code they were written against — including when the line

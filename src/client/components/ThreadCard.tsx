@@ -39,7 +39,7 @@ export function ThreadCard({ thread, onChanged }: Props) {
   };
 
   return (
-    <div className={`thread ${thread.status}`}>
+    <div className={`thread ${thread.status}`} id={`thread-${thread.id}`}>
       <div className="thread-bar">
         <span className="thread-id">{thread.id}</span>
         {thread.status === 'resolved' && <span className="chip">Resolved</span>}

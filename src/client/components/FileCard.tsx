@@ -10,7 +10,9 @@ interface Props {
   view: 'unified' | 'split';
   threads: Thread[];
   collapsed: boolean;
+  viewed: boolean;
   onToggle: () => void;
+  onToggleViewed: () => void;
   draft: DraftTarget | null;
   onDraft: (draft: DraftTarget | null) => void;
   onSubmitDraft: (body: string, intent: Intent) => Promise<void>;
@@ -90,7 +92,19 @@ const STATUS_LABEL: Record<DiffFile['status'], string> = {
 };
 
 export function FileCard(props: Props) {
-  const { file, view, threads, collapsed, onToggle, draft, onDraft, onSubmitDraft, onThreadsChanged } = props;
+  const {
+    file,
+    view,
+    threads,
+    collapsed,
+    viewed,
+    onToggle,
+    onToggleViewed,
+    draft,
+    onDraft,
+    onSubmitDraft,
+    onThreadsChanged,
+  } = props;
   const language = useMemo(() => languageOf(file.path), [file.path]);
   const rows = useMemo(() => buildRows(file, view), [file, view]);
 
@@ -293,9 +307,23 @@ export function FileCard(props: Props) {
 
   return (
     <section className="file-card" id={`file-${file.path}`}>
-      <header className="file-head">
-        <button className="chevron" onClick={onToggle} aria-label="toggle file">
-          {collapsed ? '▸' : '▾'}
+      <header className={`file-head${viewed ? ' viewed' : ''}`}>
+        <button
+          className="chevron"
+          onClick={onToggle}
+          aria-label={collapsed ? 'expand file' : 'collapse file'}
+          title={collapsed ? 'Expand' : 'Collapse'}
+        >
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d={
+                collapsed
+                  ? 'M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 1 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z'
+                  : 'M12.78 6.22a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.22 7.28a.75.75 0 0 1 1.06-1.06L8 9.94l3.72-3.72a.75.75 0 0 1 1.06 0Z'
+              }
+            />
+          </svg>
         </button>
         <span className="file-path">
           {file.oldPath && file.oldPath !== file.path && <span className="old-path">{file.oldPath} → </span>}
@@ -313,6 +341,10 @@ export function FileCard(props: Props) {
           <span className="add">+{file.additions}</span>
           <span className="del">−{file.deletions}</span>
         </span>
+        <label className="viewed-toggle" title="Collapse this file and mark it reviewed">
+          <input type="checkbox" checked={viewed} onChange={onToggleViewed} />
+          Viewed
+        </label>
       </header>
 
       {!collapsed && (

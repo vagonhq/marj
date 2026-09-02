@@ -79,6 +79,9 @@ testi de güncelledim.
 EOF
 ```
 
+Your reply pops a toast (and a desktop notification when the tab is in the background) on the
+reviewer's screen, so keep the first sentence self-contained — that is all they see at a glance.
+
 Add `--resolve` when the thread is genuinely finished, or `marj resolve t3` later. Leave it
 open if the user asked a question they still need to see answered, or if a conversation is
 running.
