@@ -1,17 +1,16 @@
+import {
+  CheckIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  DiffAddedIcon,
+  DiffModifiedIcon,
+  DiffRemovedIcon,
+  DiffRenamedIcon,
+  FileDirectoryFillIcon,
+  SearchIcon,
+} from '@primer/octicons-react';
 import { useMemo, useState } from 'react';
 import type { DiffFile, Thread } from '../../shared/types';
-
-/** Primer's folder glyph — the unicode folder characters render inconsistently. */
-function FolderIcon() {
-  return (
-    <svg className="folder" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3h-6.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.32 1.26 5.88 1 5.4 1Z"
-      />
-    </svg>
-  );
-}
 
 interface Props {
   files: DiffFile[];
@@ -75,24 +74,32 @@ function sortNodes(nodes: Node[]): Node[] {
 function buildTree(files: DiffFile[]): Node[] {
   const root: DirNode = { kind: 'dir', name: '', path: '', children: [] };
   for (const file of files) insert(root, file);
-  const squashed = squash(root);
-  return sortNodes(squashed.children);
+  return sortNodes(squash(root).children);
 }
 
-function countFiles(node: Node): number {
-  return node.kind === 'file' ? 1 : node.children.reduce((sum, child) => sum + countFiles(child), 0);
+function StatusIcon({ file, viewed }: { file: DiffFile; viewed: boolean }) {
+  if (viewed) return <CheckIcon size={16} className="status viewed" />;
+  switch (file.status) {
+    case 'added':
+      return <DiffAddedIcon size={16} className="status added" />;
+    case 'deleted':
+      return <DiffRemovedIcon size={16} className="status deleted" />;
+    case 'renamed':
+      return <DiffRenamedIcon size={16} className="status renamed" />;
+    default:
+      return <DiffModifiedIcon size={16} className="status modified" />;
+  }
 }
-
-const STATUS_LABEL: Record<DiffFile['status'], string> = {
-  added: 'A',
-  deleted: 'D',
-  modified: 'M',
-  renamed: 'R',
-};
 
 export function FileTree({ files, threadsByFile, viewed, onSelect }: Props) {
-  const tree = useMemo(() => buildTree(files), [files]);
+  const [filter, setFilter] = useState('');
   const [folded, setFolded] = useState<Set<string>>(new Set());
+
+  const shown = useMemo(() => {
+    const needle = filter.trim().toLowerCase();
+    return needle ? files.filter((f) => f.path.toLowerCase().includes(needle)) : files;
+  }, [files, filter]);
+  const tree = useMemo(() => buildTree(shown), [shown]);
 
   const toggle = (path: string) =>
     setFolded((current) => {
@@ -103,17 +110,16 @@ export function FileTree({ files, threadsByFile, viewed, onSelect }: Props) {
     });
 
   const renderNode = (node: Node, depth: number) => {
-    const indent = { paddingLeft: `${8 + depth * 14}px` };
+    const indent = { paddingLeft: `${8 + depth * 16}px` };
 
     if (node.kind === 'dir') {
-      const open = !folded.has(node.path);
+      const open = filter.trim() !== '' || !folded.has(node.path);
       return (
         <li key={`d:${node.path}`}>
           <button className="tree-row dir" style={indent} onClick={() => toggle(node.path)}>
-            <span className="twisty">{open ? '▾' : '▸'}</span>
-            <FolderIcon />
-            <span className="label">{node.name}</span>
-            <span className="muted">{countFiles(node)}</span>
+            <span className="twisty">{open ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />}</span>
+            <FileDirectoryFillIcon size={16} className="folder" />
+            <span className="tree-label">{node.name}</span>
           </button>
           {open && <ul>{node.children.map((child) => renderNode(child, depth + 1))}</ul>}
         </li>
@@ -122,23 +128,19 @@ export function FileTree({ files, threadsByFile, viewed, onSelect }: Props) {
 
     const threads = threadsByFile.get(node.file.path) ?? [];
     const open = threads.filter((t) => t.status !== 'resolved').length;
+    const isViewed = viewed.has(node.file.path);
     return (
       <li key={`f:${node.file.path}`}>
         <button
-          className={`tree-row file${viewed.has(node.file.path) ? ' dim' : ''}`}
+          className={`tree-row file${isViewed ? ' viewed' : ''}`}
           style={indent}
           onClick={() => onSelect(node.file.path)}
           title={node.file.path}
         >
-          <span className={`status ${node.file.status}`}>
-            {viewed.has(node.file.path) ? '✓' : STATUS_LABEL[node.file.status]}
-          </span>
-          <span className="label">{node.name}</span>
-          {open > 0 && <span className="badge">{open}</span>}
-          <span className="counts">
-            <span className="add">+{node.file.additions}</span>
-            <span className="del">−{node.file.deletions}</span>
-          </span>
+          <span className="twisty" />
+          <StatusIcon file={node.file} viewed={isViewed} />
+          <span className="tree-label">{node.name}</span>
+          {open > 0 && <span className="counter accent">{open}</span>}
         </button>
       </li>
     );
@@ -146,10 +148,17 @@ export function FileTree({ files, threadsByFile, viewed, onSelect }: Props) {
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-title">
-        Files changed <span className="muted">{files.length}</span>
+      <div className="filter">
+        <SearchIcon size={14} className="filter-icon" />
+        <input
+          type="search"
+          placeholder="Filter changed files"
+          value={filter}
+          onChange={(event) => setFilter(event.target.value)}
+        />
       </div>
       <ul className="tree">{tree.map((node) => renderNode(node, 0))}</ul>
+      {shown.length === 0 && <div className="tree-empty">No files match</div>}
     </aside>
   );
 }

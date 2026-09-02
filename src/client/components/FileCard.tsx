@@ -1,6 +1,7 @@
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon, CommentIcon, CopyIcon } from '@primer/octicons-react';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { DiffFile, DiffHunk, DiffLine, Intent, Side, Thread } from '../../shared/types';
-import { highlightLine, languageOf } from '../highlight.js';
+import { highlightFile, languageOf, lineKey, type TokenLine } from '../highlight.js';
 import { Composer } from './Composer.js';
 import { ThreadCard } from './ThreadCard.js';
 import type { DraftTarget } from './types.js';
@@ -9,6 +10,7 @@ interface Props {
   file: DiffFile;
   view: 'unified' | 'split';
   threads: Thread[];
+  author: string;
   collapsed: boolean;
   viewed: boolean;
   onToggle: () => void;
@@ -28,7 +30,6 @@ interface Props {
 interface Row {
   index: number;
   hunkIndex: number;
-  /** unified: the single line. split: the two halves. */
   line?: DiffLine;
   left?: DiffLine | null;
   right?: DiffLine | null;
@@ -84,18 +85,12 @@ function buildRows(file: DiffFile, view: 'unified' | 'split'): Row[] {
 
 const numberOn = (row: Row, side: Side) => (side === 'old' ? row.oldNo : row.newNo);
 
-const STATUS_LABEL: Record<DiffFile['status'], string> = {
-  added: 'added',
-  deleted: 'deleted',
-  modified: 'modified',
-  renamed: 'renamed',
-};
-
 export function FileCard(props: Props) {
   const {
     file,
     view,
     threads,
+    author,
     collapsed,
     viewed,
     onToggle,
@@ -105,25 +100,49 @@ export function FileCard(props: Props) {
     onSubmitDraft,
     onThreadsChanged,
   } = props;
+
   const language = useMemo(() => languageOf(file.path), [file.path]);
   const rows = useMemo(() => buildRows(file, view), [file, view]);
 
-  /** the visual span of the selection being drawn, in row indices */
+  // syntax colours arrive asynchronously; plain text is shown until then
+  const [tokens, setTokens] = useState<Map<string, TokenLine> | null>(null);
+  useEffect(() => {
+    if (!language || collapsed || file.binary) return;
+    let alive = true;
+    highlightFile(file, language)
+      .then((result) => alive && setTokens(result))
+      .catch(() => alive && setTokens(null));
+    return () => {
+      alive = false;
+    };
+  }, [file, language, collapsed]);
+
   const [span, setSpan] = useState<{ side: Side; from: number; to: number } | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const mine = draft && draft.file === file.path ? draft : null;
 
-  // the draft can be cancelled from anywhere (Escape, another file) — drop the span with it
   useEffect(() => {
     if (!mine) setSpan(null);
   }, [mine]);
+
+  /** turn a row span into the line range the thread will carry */
+  const publish = (side: Side, from: number, to: number) => {
+    const lo = Math.min(from, to);
+    const hi = Math.max(from, to);
+    const numbers = rows
+      .slice(lo, hi + 1)
+      .map((row) => numberOn(row, side))
+      .filter((no): no is number => no !== null);
+    if (numbers.length === 0) return;
+    onDraft({ file: file.path, side, startLine: Math.min(...numbers), endLine: Math.max(...numbers) });
+  };
 
   // the composer only appears once the drag ends: opening it mid-drag would
   // push the rows out from under the cursor
   const spanRef = useRef(span);
   spanRef.current = span;
-
   useEffect(() => {
     if (!dragging) return;
     const stop = () => {
@@ -140,23 +159,6 @@ export function FileCard(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dragging]);
 
-  /** turn a row span into the line range the thread will carry */
-  const publish = (side: Side, from: number, to: number) => {
-    const lo = Math.min(from, to);
-    const hi = Math.max(from, to);
-    const numbers = rows
-      .slice(lo, hi + 1)
-      .map((row) => numberOn(row, side))
-      .filter((no): no is number => no !== null);
-    if (numbers.length === 0) return;
-    onDraft({
-      file: file.path,
-      side,
-      startLine: Math.min(...numbers),
-      endLine: Math.max(...numbers),
-    });
-  };
-
   const startSelect = (event: React.MouseEvent, side: Side, index: number) => {
     if (event.button !== 0) return;
     event.preventDefault();
@@ -169,11 +171,7 @@ export function FileCard(props: Props) {
     setDragging(true);
   };
 
-  /**
-   * The side comes from where the drag started, not from the row under the
-   * cursor — otherwise a drag that crosses a deleted line into added ones would
-   * stop dead. `expect` guards the split view, where each column is one side.
-   */
+  /** the side comes from where the drag started, not from the row under the cursor */
   const extendSelect = (index: number, expect?: Side) => {
     if (!dragging || !span) return;
     if (expect && span.side !== expect) return;
@@ -182,12 +180,8 @@ export function FileCard(props: Props) {
   };
 
   const selectedRow = (index: number) =>
-    !!span &&
-    (dragging || !!mine) &&
-    index >= Math.min(span.from, span.to) &&
-    index <= Math.max(span.from, span.to);
+    !!span && (dragging || !!mine) && index >= Math.min(span.from, span.to) && index <= Math.max(span.from, span.to);
 
-  /** the composer sits under the last row of the visual span */
   const composerRow = span && !dragging ? Math.max(span.from, span.to) : -1;
 
   const threadsAt = (side: Side, no: number) =>
@@ -219,19 +213,27 @@ export function FileCard(props: Props) {
       <tr className="overlay-row">
         <td colSpan={colSpan}>
           {items.map((thread) => (
-            <ThreadCard key={thread.id} thread={thread} onChanged={onThreadsChanged} />
+            <ThreadCard key={thread.id} thread={thread} author={author} onChanged={onThreadsChanged} />
           ))}
-          {showDraft && (
-            <Composer header={header} autoFocus onCancel={() => onDraft(null)} onSubmit={onSubmitDraft} />
-          )}
+          {showDraft && <Composer header={header} autoFocus onCancel={() => onDraft(null)} onSubmit={onSubmitDraft} />}
         </td>
       </tr>
     );
   };
 
-  const renderCode = (text: string) => (
-    <span className="code" dangerouslySetInnerHTML={{ __html: highlightLine(text, language) || '&nbsp;' }} />
-  );
+  const renderCode = (side: Side, no: number | null, text: string) => {
+    const line = no !== null ? tokens?.get(lineKey(side, no)) : undefined;
+    if (!line || line.length === 0) return <span className="code">{text === '' ? ' ' : text}</span>;
+    return (
+      <span className="code">
+        {line.map((token, index) => (
+          <span key={index} className="tok" style={token.style as React.CSSProperties}>
+            {token.text}
+          </span>
+        ))}
+      </span>
+    );
+  };
 
   const unifiedRow = (row: Row) => {
     const line = row.line!;
@@ -240,10 +242,7 @@ export function FileCard(props: Props) {
     const selected = selectedRow(row.index);
     return (
       <Fragment key={`u${row.index}`}>
-        <tr
-          className={`line ${line.type}${selected ? ' selected' : ''}`}
-          onMouseEnter={() => extendSelect(row.index)}
-        >
+        <tr className={`line ${line.type}${selected ? ' selected' : ''}`} onMouseEnter={() => extendSelect(row.index)}>
           <td className="num old" onMouseDown={(e) => no !== null && startSelect(e, side, row.index)}>
             {no !== null && gutterButton(side, no, row.index)}
             <span className="n">{line.oldNo ?? ''}</span>
@@ -253,7 +252,7 @@ export function FileCard(props: Props) {
           </td>
           <td className="content">
             <span className="marker">{line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' '}</span>
-            {renderCode(line.text)}
+            {renderCode(side, no, line.text)}
           </td>
         </tr>
         {overlay(row, 3)}
@@ -280,7 +279,7 @@ export function FileCard(props: Props) {
             className={`content ${row.left ? row.left.type : 'filler'}${leftSelected ? ' selected' : ''}`}
             onMouseEnter={() => extendSelect(row.index, 'old')}
           >
-            {row.left ? renderCode(row.left.text) : null}
+            {row.left ? renderCode('old', row.oldNo, row.left.text) : null}
           </td>
           <td
             className={`num new${rightSelected ? ' selected' : ''}`}
@@ -294,7 +293,7 @@ export function FileCard(props: Props) {
             className={`content ${row.right ? row.right.type : 'filler'}${rightSelected ? ' selected' : ''}`}
             onMouseEnter={() => extendSelect(row.index, 'new')}
           >
-            {row.right ? renderCode(row.right.text) : null}
+            {row.right ? renderCode('new', row.newNo, row.right.text) : null}
           </td>
         </tr>
         {overlay(row, 4)}
@@ -302,46 +301,45 @@ export function FileCard(props: Props) {
     );
   };
 
+  const copyPath = async () => {
+    try {
+      await navigator.clipboard.writeText(file.path);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    } catch {
+      /* clipboard blocked */
+    }
+  };
+
   const outdated = threads.filter((t) => t.status === 'outdated');
   const colSpan = view === 'unified' ? 3 : 4;
 
   return (
-    <section className="file-card" id={`file-${file.path}`}>
-      <header className={`file-head${viewed ? ' viewed' : ''}`}>
-        <button
-          className="chevron"
-          onClick={onToggle}
-          aria-label={collapsed ? 'expand file' : 'collapse file'}
-          title={collapsed ? 'Expand' : 'Collapse'}
-        >
-          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-            <path
-              fill="currentColor"
-              d={
-                collapsed
-                  ? 'M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 1 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z'
-                  : 'M12.78 6.22a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L3.22 7.28a.75.75 0 0 1 1.06-1.06L8 9.94l3.72-3.72a.75.75 0 0 1 1.06 0Z'
-              }
-            />
-          </svg>
+    <section className={`file-card${viewed ? ' is-viewed' : ''}`} id={`file-${file.path}`}>
+      <header className="file-head">
+        <button className="btn invisible icon-only chevron" onClick={onToggle} aria-label={collapsed ? 'expand' : 'collapse'}>
+          {collapsed ? <ChevronRightIcon size={16} /> : <ChevronDownIcon size={16} />}
         </button>
         <span className="file-path">
           {file.oldPath && file.oldPath !== file.path && <span className="old-path">{file.oldPath} → </span>}
           {file.path}
         </span>
-        {file.status !== 'modified' && <span className="chip">{STATUS_LABEL[file.status]}</span>}
-        {file.generated && <span className="chip">generated</span>}
+        <button className="btn invisible icon-only copy" onClick={() => void copyPath()} title="Copy path">
+          {copied ? <CheckIcon size={14} className="fg-success" /> : <CopyIcon size={14} />}
+        </button>
+        {file.status !== 'modified' && <span className={`label ${file.status}`}>{file.status}</span>}
+        {file.generated && <span className="label">generated</span>}
         <span className="spacer" />
         {threads.length > 0 && (
-          <span className="chip comments">
-            {threads.length} comment{threads.length > 1 ? 's' : ''}
+          <span className="file-comments" title={`${threads.length} comment threads`}>
+            <CommentIcon size={14} /> {threads.length}
           </span>
         )}
-        <span className="counts">
+        <span className="diffstat">
           <span className="add">+{file.additions}</span>
           <span className="del">−{file.deletions}</span>
         </span>
-        <label className="viewed-toggle" title="Collapse this file and mark it reviewed">
+        <label className="viewed-toggle" title="Mark as viewed and collapse">
           <input type="checkbox" checked={viewed} onChange={onToggleViewed} />
           Viewed
         </label>
@@ -353,7 +351,7 @@ export function FileCard(props: Props) {
             <div className="outdated-block">
               <div className="outdated-title">Outdated — the code these refer to has changed</div>
               {outdated.map((thread) => (
-                <ThreadCard key={thread.id} thread={thread} onChanged={onThreadsChanged} />
+                <ThreadCard key={thread.id} thread={thread} author={author} onChanged={onThreadsChanged} />
               ))}
             </div>
           )}
@@ -384,7 +382,8 @@ export function FileCard(props: Props) {
                 {file.hunks.map((hunk, hunkIndex) => (
                   <Fragment key={`h${hunkIndex}`}>
                     <tr className="hunk-head">
-                      <td colSpan={colSpan}>
+                      <td className="hunk-num" colSpan={view === 'unified' ? 2 : 1} />
+                      <td colSpan={view === 'unified' ? 1 : 3}>
                         @@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},{hunk.newLines} @@
                         {hunk.section && <span className="section"> {hunk.section}</span>}
                       </td>

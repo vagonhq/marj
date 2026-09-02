@@ -1,11 +1,14 @@
+import { CheckIcon, SparkleFillIcon, TrashIcon } from '@primer/octicons-react';
 import { useState } from 'react';
-import type { Intent, Thread } from '../../shared/types';
+import type { Intent, Message, Thread } from '../../shared/types';
 import { api } from '../api.js';
 import { renderMarkdown } from '../markdown.js';
 import { Composer } from './Composer.js';
 
 interface Props {
   thread: Thread;
+  /** git user.name of the reviewer, for the avatar and the "x commented" line */
+  author: string;
   onChanged: () => void;
 }
 
@@ -17,9 +20,25 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-export function ThreadCard({ thread, onChanged }: Props) {
+export function Avatar({ role, author, small }: { role: Message['role']; author: string; small?: boolean }) {
+  if (role === 'agent') {
+    return (
+      <span className={`avatar claude${small ? ' small' : ''}`} title="Claude">
+        <SparkleFillIcon size={small ? 12 : 14} />
+      </span>
+    );
+  }
+  return (
+    <span className={`avatar${small ? ' small' : ''}`} title={author}>
+      {author.trim().charAt(0).toUpperCase() || '?'}
+    </span>
+  );
+}
+
+export function ThreadCard({ thread, author, onChanged }: Props) {
   const [replying, setReplying] = useState(false);
   const waiting = thread.status !== 'resolved' && thread.messages.at(-1)?.role === 'user';
+  const resolved = thread.status === 'resolved';
 
   const reply = async (body: string, intent: Intent) => {
     await api.reply(thread.id, body, intent);
@@ -40,60 +59,55 @@ export function ThreadCard({ thread, onChanged }: Props) {
 
   return (
     <div className={`thread ${thread.status}`} id={`thread-${thread.id}`}>
-      <div className="thread-bar">
-        <span className="thread-id">{thread.id}</span>
-        {thread.status === 'resolved' && <span className="chip">Resolved</span>}
-        {thread.status === 'outdated' && <span className="chip">Outdated</span>}
-        {thread.agentTyping ? (
-          <span className="chip typing">Claude is typing…</span>
-        ) : (
-          waiting && <span className="chip waiting">Waiting for Claude</span>
-        )}
-        <span className="spacer" />
-        <button
-          className="btn tiny"
-          onClick={() => void setStatus(thread.status === 'resolved' ? 'open' : 'resolved')}
-        >
-          {thread.status === 'resolved' ? 'Unresolve' : 'Resolve'}
-        </button>
-        <button className="btn tiny danger" title="Delete this thread" onClick={() => void remove()}>
-          Delete
-        </button>
-      </div>
-
       {thread.messages.map((message) => (
         <div key={message.id} className={`comment ${message.role}`}>
-          <div className="comment-head">
-            <span className="avatar">{message.role === 'agent' ? '✦' : '🧑'}</span>
-            <strong>{message.role === 'agent' ? 'Claude' : 'You'}</strong>
-            <span className="muted">commented {timeAgo(message.createdAt)}</span>
-            {message.intent === 'fix' && (
-              <span className="chip fix" title="asked Claude to change the code">
-                fix
-              </span>
-            )}
+          <Avatar role={message.role} author={author} />
+          <div className="comment-box">
+            <div className="comment-header">
+              <strong>{message.role === 'agent' ? 'Claude' : author}</strong>
+              <span className="muted">commented {timeAgo(message.createdAt)}</span>
+              {message.intent === 'fix' && (
+                <span className="label accent" title="Claude was asked to change the code">
+                  fix requested
+                </span>
+              )}
+            </div>
+            <div className="comment-body markdown" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.body) }} />
           </div>
-          <div
-            className="comment-body"
-            dangerouslySetInnerHTML={{ __html: renderMarkdown(message.body) }}
-          />
         </div>
       ))}
 
-      <div className="thread-foot">
+      <div className="thread-footer">
         {replying ? (
-          <Composer
-            placeholder="Reply…"
-            autoFocus
-            submitLabel="Reply"
-            onSubmit={reply}
-            onCancel={() => setReplying(false)}
-          />
+          <Composer placeholder="Reply…" autoFocus submitLabel="Reply" onSubmit={reply} onCancel={() => setReplying(false)} />
         ) : (
-          <button className="btn" onClick={() => setReplying(true)}>
-            Reply
-          </button>
+          <div className="thread-footer-row">
+            <Avatar role="user" author={author} small />
+            <button className="reply-field" onClick={() => setReplying(true)}>
+              Reply…
+            </button>
+          </div>
         )}
+        <div className="thread-status">
+          <span className="thread-id" title="thread id, for `marj show`">
+            {thread.id}
+          </span>
+          {thread.agentTyping && <span className="label accent pulse">Claude is typing…</span>}
+          {!thread.agentTyping && waiting && <span className="label accent">Waiting for Claude</span>}
+          {thread.status === 'outdated' && <span className="label">Outdated</span>}
+          {resolved && (
+            <span className="label success">
+              <CheckIcon size={12} /> Resolved
+            </span>
+          )}
+          <span className="spacer" />
+          <button className="btn small" onClick={() => void setStatus(resolved ? 'open' : 'resolved')}>
+            {resolved ? 'Unresolve conversation' : 'Resolve conversation'}
+          </button>
+          <button className="btn small invisible icon-only danger" title="Delete thread" onClick={() => void remove()}>
+            <TrashIcon size={14} />
+          </button>
+        </div>
       </div>
     </div>
   );

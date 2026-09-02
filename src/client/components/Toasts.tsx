@@ -1,3 +1,4 @@
+import { SparkleFillIcon, XIcon } from '@primer/octicons-react';
 import { useEffect } from 'react';
 
 export interface Toast {
@@ -36,20 +37,22 @@ export function Toasts({ toasts, onDismiss, onOpen }: Props) {
             onDismiss(toast.id);
           }}
         >
-          <span className="toast-avatar">✦</span>
+          <span className="avatar claude small">
+            <SparkleFillIcon size={12} />
+          </span>
           <div className="toast-text">
             <strong>{toast.title}</strong>
             <span>{toast.body}</span>
           </div>
           <button
-            className="toast-close"
+            className="btn invisible icon-only"
             aria-label="dismiss"
             onClick={(event) => {
               event.stopPropagation();
               onDismiss(toast.id);
             }}
           >
-            ×
+            <XIcon size={16} />
           </button>
         </div>
       ))}

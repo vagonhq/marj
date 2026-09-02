@@ -48,6 +48,8 @@ export interface DiffPayload {
   /** bumped every time the diff is recomputed */
   version: number;
   computedAt: string;
+  /** git config user.name, for the reviewer's avatar */
+  author: string;
 }
 
 export type Role = 'user' | 'agent';

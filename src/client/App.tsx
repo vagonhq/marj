@@ -1,3 +1,4 @@
+import { BellIcon, BellSlashIcon, ColumnsIcon, GitCompareIcon, MoonIcon, RowsIcon, SunIcon } from '@primer/octicons-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DiffFile, DiffPayload, Intent, Thread } from '../shared/types';
 import { api, subscribe } from './api.js';
@@ -65,19 +66,19 @@ export function App() {
 
       // restore "viewed", dropping files that changed since they were marked
       const key = `marj:viewed:${payload.repoRoot}`;
-      const current = new Map<string, string>();
+      const restored = new Map<string, string>();
       try {
         const raw = JSON.parse(localStorage.getItem(key) ?? '{}') as Record<string, string>;
         for (const file of payload.files) {
-          if (raw[file.path] && raw[file.path] === signatureOf(file)) current.set(file.path, raw[file.path]);
+          if (raw[file.path] && raw[file.path] === signatureOf(file)) restored.set(file.path, raw[file.path]);
         }
       } catch {
         /* private mode */
       }
       if (viewedKey.current !== key) {
         viewedKey.current = key;
-        setViewed(current);
-        setCollapsed((folded) => new Set([...folded, ...current.keys()]));
+        setViewed(restored);
+        setCollapsed((folded) => new Set([...folded, ...restored.keys()]));
       } else {
         setViewed((previous) => {
           const next = new Map<string, string>();
@@ -95,13 +96,15 @@ export function App() {
   }, []);
 
   const scrollToThread = useCallback((threadId: string) => {
-    const open = () => document.getElementById(`thread-${threadId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     setThreads((current) => {
       const thread = current.find((t) => t.id === threadId);
       if (thread) setCollapsed((folded) => new Set([...folded].filter((p) => p !== thread.file)));
       return current;
     });
-    window.setTimeout(open, 60);
+    window.setTimeout(
+      () => document.getElementById(`thread-${threadId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+      60,
+    );
   }, []);
 
   const loadThreads = useCallback(async () => {
@@ -119,12 +122,12 @@ export function App() {
         lastAgentSeq.current = highest;
         return;
       }
-      const fresh_replies = replies.filter(({ message }) => message.seq > lastAgentSeq.current);
+      const unseen = replies.filter(({ message }) => message.seq > lastAgentSeq.current);
       lastAgentSeq.current = Math.max(lastAgentSeq.current, highest);
-      if (fresh_replies.length === 0 || !alertsRef.current) return;
+      if (unseen.length === 0 || !alertsRef.current) return;
 
       chime();
-      for (const { thread, message } of fresh_replies) {
+      for (const { thread, message } of unseen) {
         const where = `${thread.file}:${thread.startLine}`;
         const preview = message.body.replace(/\s+/g, ' ').slice(0, 140);
         setToasts((current) =>
@@ -156,8 +159,9 @@ export function App() {
     if (repoName) document.title = `${repoName} · ${diff?.mode ?? ''} — marj`;
   }, [repoName, diff?.mode]);
 
+  // Primer's tokens key off these attributes; index.html sets them before first paint
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
+    document.documentElement.setAttribute('data-color-mode', theme);
     remember('marj:theme', theme);
   }, [theme]);
 
@@ -187,21 +191,12 @@ export function App() {
     return map;
   }, [threads]);
 
-  const pending = threads.filter(
-    (thread) => thread.status !== 'resolved' && thread.messages.at(-1)?.role === 'user',
-  ).length;
+  const pending = threads.filter((t) => t.status !== 'resolved' && t.messages.at(-1)?.role === 'user').length;
 
   const submitDraft = useCallback(
     async (body: string, intent: Intent) => {
       if (!draft) return;
-      await api.createThread({
-        file: draft.file,
-        side: draft.side,
-        startLine: draft.startLine,
-        endLine: draft.endLine,
-        body,
-        intent,
-      });
+      await api.createThread({ ...draft, body, intent });
       setDraft(null);
       void loadThreads();
     },
@@ -217,24 +212,21 @@ export function App() {
     });
   }, []);
 
-  const toggleViewed = useCallback(
-    (file: DiffFile) => {
-      setViewed((current) => {
-        const next = new Map(current);
-        if (next.has(file.path)) next.delete(file.path);
-        else next.set(file.path, signatureOf(file));
-        if (viewedKey.current) remember(viewedKey.current, JSON.stringify(Object.fromEntries(next)));
-        setCollapsed((folded) => {
-          const updated = new Set(folded);
-          if (next.has(file.path)) updated.add(file.path);
-          else updated.delete(file.path);
-          return updated;
-        });
-        return next;
+  const toggleViewed = useCallback((file: DiffFile) => {
+    setViewed((current) => {
+      const next = new Map(current);
+      if (next.has(file.path)) next.delete(file.path);
+      else next.set(file.path, signatureOf(file));
+      if (viewedKey.current) remember(viewedKey.current, JSON.stringify(Object.fromEntries(next)));
+      setCollapsed((folded) => {
+        const updated = new Set(folded);
+        if (next.has(file.path)) updated.add(file.path);
+        else updated.delete(file.path);
+        return updated;
       });
-    },
-    [],
-  );
+      return next;
+    });
+  }, []);
 
   const toggleAlerts = useCallback(async () => {
     const next = !alertsRef.current;
@@ -259,64 +251,86 @@ export function App() {
     );
   }
 
-  const totals = (diff?.files ?? []).reduce(
-    (acc, file) => ({ add: acc.add + file.additions, del: acc.del + file.deletions }),
-    { add: 0, del: 0 },
-  );
+  const files = diff?.files ?? [];
+  const totals = files.reduce((acc, f) => ({ add: acc.add + f.additions, del: acc.del + f.deletions }), { add: 0, del: 0 });
+  const progress = files.length ? Math.round((viewed.size / files.length) * 100) : 0;
 
   return (
     <div className="app">
-      <header className="topbar">
-        <div className="brand">
-          marj
-          <span className={`live ${pulse ? 'pulse' : ''}`} title="live: the diff refreshes as files change" />
+      <header className="pagehead">
+        <div className="pagehead-row title-row">
+          <span className="brand">
+            <span className="brand-mark">m</span>
+            marj
+          </span>
+          <span className="crumb-sep">/</span>
+          <span className="repo" title={diff?.repoRoot}>
+            {repoName || '…'}
+          </span>
+          <span className="crumb-sep">/</span>
+          <span className="mode">{diff?.mode ?? 'loading'}</span>
+          <span className={`live${pulse ? ' pulse' : ''}`} title="live — the diff refreshes as files change" />
+          <span className="spacer" />
+          {pending > 0 && <span className="label accent large">{pending} waiting on Claude</span>}
+          <button
+            className={`btn invisible icon-only${alerts ? ' fg-accent' : ''}`}
+            title={alerts ? 'Chime + notify when Claude replies (on)' : 'Notifications off'}
+            onClick={() => void toggleAlerts()}
+          >
+            {alerts ? <BellIcon size={16} /> : <BellSlashIcon size={16} />}
+          </button>
+          <button
+            className="btn invisible icon-only"
+            title={theme === 'dark' ? 'Switch to light' : 'Switch to dark'}
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+          >
+            {theme === 'dark' ? <SunIcon size={16} /> : <MoonIcon size={16} />}
+          </button>
         </div>
-        <div className="repo" title={diff?.repoRoot}>
-          {repoName}
-        </div>
-        <div className="mode">{diff?.mode ?? 'loading…'}</div>
-        <div className="totals">
-          <span className="add">+{totals.add}</span>
-          <span className="del">−{totals.del}</span>
-          <span className="files">{diff?.files.length ?? 0} files</span>
-        </div>
-        {diff && diff.files.length > 0 && (
-          <div className="progress" title="files marked as reviewed">
-            {viewed.size}/{diff.files.length} reviewed
+
+        <div className="pagehead-row toolbar">
+          <span className="tab selected">
+            <GitCompareIcon size={16} />
+            Files changed
+            <span className="counter">{files.length}</span>
+          </span>
+          <span className="diffstat">
+            <span className="add">+{totals.add}</span>
+            <span className="del">−{totals.del}</span>
+          </span>
+          <span className="spacer" />
+          {files.length > 0 && (
+            <div className="progress" title="files marked as viewed">
+              <span>
+                {viewed.size} / {files.length} files viewed
+              </span>
+              <span className="bar">
+                <i style={{ width: `${progress}%` }} />
+              </span>
+            </div>
+          )}
+          <div className="segmented" role="group" aria-label="diff layout">
+            <button className={view === 'unified' ? 'selected' : ''} onClick={() => setView('unified')} title="Unified (u)">
+              <RowsIcon size={14} /> Unified
+            </button>
+            <button className={view === 'split' ? 'selected' : ''} onClick={() => setView('split')} title="Split (u)">
+              <ColumnsIcon size={14} /> Split
+            </button>
           </div>
-        )}
-        <div className="spacer" />
-        {pending > 0 && <div className="pending">{pending} waiting on Claude</div>}
-        <button
-          className={`btn icon${alerts ? ' on' : ''}`}
-          title={alerts ? 'Chime and notify when Claude replies' : 'Notifications off'}
-          onClick={() => void toggleAlerts()}
-        >
-          {alerts ? '🔔' : '🔕'}
-        </button>
-        <button className="btn" onClick={() => setView(view === 'unified' ? 'split' : 'unified')}>
-          {view === 'unified' ? 'Split' : 'Unified'}
-        </button>
-        <button className="btn" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
-          {theme === 'dark' ? 'Light' : 'Dark'}
-        </button>
+        </div>
       </header>
 
       <div className="workspace">
-        <FileTree
-          files={diff?.files ?? []}
-          threadsByFile={threadsByFile}
-          viewed={viewed}
-          onSelect={scrollToFile}
-        />
+        <FileTree files={files} threadsByFile={threadsByFile} viewed={viewed} onSelect={scrollToFile} />
         <main className="stream">
-          {diff?.files.length === 0 && <div className="empty">No changes to review.</div>}
-          {diff?.files.map((file) => (
+          {diff && files.length === 0 && <div className="empty">No changes to review.</div>}
+          {files.map((file) => (
             <FileCard
               key={file.path}
               file={file}
               view={view}
               threads={threadsByFile.get(file.path) ?? []}
+              author={diff?.author ?? 'you'}
               collapsed={collapsed.has(file.path)}
               viewed={viewed.has(file.path)}
               onToggle={() => toggleFile(file.path)}
@@ -332,7 +346,7 @@ export function App() {
 
       <Toasts
         toasts={toasts}
-        onDismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))}
+        onDismiss={(id) => setToasts((current) => current.filter((t) => t.id !== id))}
         onOpen={scrollToThread}
       />
     </div>

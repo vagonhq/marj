@@ -42,12 +42,15 @@ export function Composer({
 
   return (
     <div className="composer">
-      {header && <div className="composer-head">{header}</div>}
+      <div className="composer-head">
+        <span className="composer-tab">Write</span>
+        {header && <span className="composer-context">{header}</span>}
+      </div>
       <textarea
         ref={ref}
         value={value}
         placeholder={placeholder}
-        rows={Math.min(12, Math.max(3, value.split('\n').length + 1))}
+        rows={Math.min(14, Math.max(3, value.split('\n').length + 1))}
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
@@ -58,7 +61,7 @@ export function Composer({
       />
       <div className="composer-actions">
         <span className="hint">
-          <kbd>⌘↵</kbd> answer · <kbd>⌘⇧↵</kbd> fix
+          Markdown is supported · <kbd>⌘↵</kbd> answer · <kbd>⌘⇧↵</kbd> fix
         </span>
         {onCancel && (
           <button className="btn" onClick={onCancel} disabled={busy}>

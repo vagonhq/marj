@@ -111,6 +111,14 @@ async function diffUntracked(cwd: string, file: string, context: number): Promis
 
 let versionCounter = 0;
 
+export async function authorName(repoRoot: string): Promise<string> {
+  try {
+    return (await git(repoRoot, ['config', 'user.name'])).trim() || 'you';
+  } catch {
+    return 'you';
+  }
+}
+
 export async function computeDiff(
   repoRoot: string,
   target: DiffTarget,
@@ -135,11 +143,12 @@ export async function computeDiff(
     files,
     version: ++versionCounter,
     computedAt: new Date().toISOString(),
+    author: await authorName(repoRoot),
   };
 }
 
 /** Diff built from stdin rather than from git. */
-export function diffFromRaw(raw: string, repoRoot: string): DiffPayload {
+export async function diffFromRaw(raw: string, repoRoot: string): Promise<DiffPayload> {
   return {
     mode: 'stdin',
     args: [],
@@ -147,5 +156,6 @@ export function diffFromRaw(raw: string, repoRoot: string): DiffPayload {
     files: parseUnifiedDiff(raw),
     version: ++versionCounter,
     computedAt: new Date().toISOString(),
+    author: await authorName(repoRoot),
   };
 }

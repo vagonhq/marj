@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-color-mode="dark" data-light-theme="light" data-dark-theme="dark">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -8,6 +8,14 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%230969da'/%3E%3Cpath d='M3.6 11.5V4.5h1.6l2.3 3.4 2.3-3.4h1.6v7h-1.5V7.1L7.9 9.9h-.8L5.1 7.1v4.4z' fill='white'/%3E%3C/svg%3E"
     />
+    <script>
+      // apply the saved theme before first paint so there is no flash
+      try {
+        var t = localStorage.getItem('marj:theme');
+        if (!t) t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-color-mode', t);
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

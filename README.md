@@ -116,6 +116,17 @@ Bound to `127.0.0.1` only.
 --json          machine readable output
 ```
 
+## Look and feel
+
+The UI is built on GitHub's own design system: colours, radii and shadows are
+[`@primer/primitives`](https://github.com/primer/primitives) tokens (the ones github.com is
+painted with, light and dark), icons are [Octicons](https://primer.style/octicons), and syntax
+highlighting is [Shiki](https://shiki.style) with the `github-light-default` /
+`github-dark-default` themes — the same TextMate grammars VS Code uses, so Ruby, ERB, TSX, Vue,
+Terraform and ~200 other languages colour correctly, and each hunk is highlighted as one block so
+multi-line strings and comments keep their state. Grammars load lazily, only for languages that
+appear in the diff.
+
 ## Develop
 
 ```bash

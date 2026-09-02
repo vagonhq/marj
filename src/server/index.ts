@@ -72,7 +72,7 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   if (!opts.stdinDiff) target = await resolveTarget(repoRoot, opts.positional, { staged: opts.staged });
 
   let diff: DiffPayload = opts.stdinDiff
-    ? diffFromRaw(opts.stdinDiff, repoRoot)
+    ? await diffFromRaw(opts.stdinDiff, repoRoot)
     : await computeDiff(repoRoot, target, context);
   reanchorAll(store, diff);
 

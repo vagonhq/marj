@@ -2,12 +2,30 @@
   "name": "marj",
   "version": "0.1.0",
   "description": "Local git diff review in your browser — comment on a line, your running Claude Code session answers inline and can fix the code.",
-  "keywords": ["git", "diff", "code-review", "claude", "claude-code", "ai", "agent", "cli"],
+  "keywords": [
+    "git",
+    "diff",
+    "code-review",
+    "claude",
+    "claude-code",
+    "ai",
+    "agent",
+    "cli"
+  ],
   "license": "MIT",
   "type": "module",
-  "bin": { "marj": "dist/server/cli/index.js" },
-  "files": ["dist", "skill", "README.md", "LICENSE"],
-  "engines": { "node": ">=20" },
+  "bin": {
+    "marj": "dist/server/cli/index.js"
+  },
+  "files": [
+    "dist",
+    "skill",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "npm run build:server && npm run build:client",
     "build:server": "tsc -p tsconfig.server.json",
@@ -23,15 +41,17 @@
     "open": "^10.1.0"
   },
   "devDependencies": {
+    "@primer/octicons-react": "^19.33.0",
+    "@primer/primitives": "^11.10.0",
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
-    "highlight.js": "^11.11.1",
     "marked": "^15.0.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "shiki": "^4.4.3",
     "typescript": "^5.7.2",
     "vite": "^6.0.5",
     "vitest": "^2.1.8"
