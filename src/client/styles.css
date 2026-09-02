@@ -328,6 +328,13 @@ button { font: inherit; cursor: pointer; }
 .is-viewed .viewed-toggle { color: var(--fgColor-accent); }
 .notice { padding: 24px; color: var(--fgColor-muted); text-align: center; }
 
+/* a short glow on whatever a sidebar click or toast just jumped to */
+.flash { animation: flash 1.4s ease-out; }
+@keyframes flash {
+  0% { box-shadow: 0 0 0 3px var(--borderColor-accent-emphasis); }
+  100% { box-shadow: 0 0 0 3px transparent; }
+}
+
 /* ---------- diff table ---------- */
 
 table.diff {

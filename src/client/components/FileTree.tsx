@@ -11,70 +11,13 @@ import {
 } from '@primer/octicons-react';
 import { useMemo, useState } from 'react';
 import type { DiffFile, Thread } from '../../shared/types';
+import { buildTree, type TreeNode } from '../tree.js';
 
 interface Props {
   files: DiffFile[];
   threadsByFile: Map<string, Thread[]>;
   viewed: Map<string, string>;
   onSelect: (path: string) => void;
-}
-
-interface DirNode {
-  kind: 'dir';
-  /** the segment(s) shown on this row, e.g. "src/api" when the chain is single-child */
-  name: string;
-  path: string;
-  children: Node[];
-}
-
-interface FileNode {
-  kind: 'file';
-  name: string;
-  file: DiffFile;
-}
-
-type Node = DirNode | FileNode;
-
-function insert(root: DirNode, file: DiffFile): void {
-  const segments = file.path.split('/');
-  const name = segments.pop()!;
-  let node = root;
-  let prefix = '';
-  for (const segment of segments) {
-    prefix = prefix ? `${prefix}/${segment}` : segment;
-    let next = node.children.find((c): c is DirNode => c.kind === 'dir' && c.path === prefix);
-    if (!next) {
-      next = { kind: 'dir', name: segment, path: prefix, children: [] };
-      node.children.push(next);
-    }
-    node = next;
-  }
-  node.children.push({ kind: 'file', name, file });
-}
-
-/** src → api → users.ts collapses to a single "src/api" row, like GitHub's tree. */
-function squash(node: DirNode): DirNode {
-  const children = node.children.map((child) => (child.kind === 'dir' ? squash(child) : child));
-  if (children.length === 1 && children[0].kind === 'dir') {
-    const only = children[0];
-    return { kind: 'dir', name: `${node.name}/${only.name}`, path: only.path, children: only.children };
-  }
-  return { ...node, children };
-}
-
-function sortNodes(nodes: Node[]): Node[] {
-  return [...nodes]
-    .sort((a, b) => {
-      if (a.kind !== b.kind) return a.kind === 'dir' ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    })
-    .map((node) => (node.kind === 'dir' ? { ...node, children: sortNodes(node.children) } : node));
-}
-
-function buildTree(files: DiffFile[]): Node[] {
-  const root: DirNode = { kind: 'dir', name: '', path: '', children: [] };
-  for (const file of files) insert(root, file);
-  return sortNodes(squash(root).children);
 }
 
 function StatusIcon({ file, viewed }: { file: DiffFile; viewed: boolean }) {
@@ -109,7 +52,7 @@ export function FileTree({ files, threadsByFile, viewed, onSelect }: Props) {
       return next;
     });
 
-  const renderNode = (node: Node, depth: number) => {
+  const renderNode = (node: TreeNode, depth: number) => {
     const indent = { paddingLeft: `${8 + depth * 16}px` };
 
     if (node.kind === 'dir') {

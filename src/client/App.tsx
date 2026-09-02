@@ -7,6 +7,18 @@ import { FileTree } from './components/FileTree.js';
 import { Toasts, type Toast } from './components/Toasts.js';
 import type { DraftTarget } from './components/types.js';
 import { askForNotifications, chime, desktopNotify } from './notify.js';
+import { buildTree, flattenTree } from './tree.js';
+
+/** jump straight there — a smooth scroll across a long diff takes seconds — and mark the landing spot */
+function jumpTo(id: string, block: ScrollLogicalPosition): void {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'auto', block });
+  el.classList.remove('flash');
+  void el.offsetWidth; // restart the animation when jumping to the same target twice
+  el.classList.add('flash');
+  window.setTimeout(() => el.classList.remove('flash'), 1400);
+}
 
 type ViewMode = 'unified' | 'split';
 type Theme = 'dark' | 'light';
@@ -101,10 +113,7 @@ export function App() {
       if (thread) setCollapsed((folded) => new Set([...folded].filter((p) => p !== thread.file)));
       return current;
     });
-    window.setTimeout(
-      () => document.getElementById(`thread-${threadId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }),
-      60,
-    );
+    window.setTimeout(() => jumpTo(`thread-${threadId}`, 'center'), 60);
   }, []);
 
   const loadThreads = useCallback(async () => {
@@ -238,9 +247,7 @@ export function App() {
     }
   }, []);
 
-  const scrollToFile = useCallback((path: string) => {
-    document.getElementById(`file-${path}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, []);
+  const scrollToFile = useCallback((path: string) => jumpTo(`file-${path}`, 'start'), []);
 
   if (error && !diff) {
     return (
@@ -251,7 +258,8 @@ export function App() {
     );
   }
 
-  const files = diff?.files ?? [];
+  // the cards follow the sidebar's order (folders first, alphabetical), not raw path order
+  const files = useMemo(() => flattenTree(buildTree(diff?.files ?? [])), [diff]);
   const totals = files.reduce((acc, f) => ({ add: acc.add + f.additions, del: acc.del + f.deletions }), { add: 0, del: 0 });
   const progress = files.length ? Math.round((viewed.size / files.length) * 100) : 0;
 
