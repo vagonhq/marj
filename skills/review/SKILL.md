@@ -1,6 +1,5 @@
 ---
-name: marj
-description: "Open a GitHub-style review UI for local git changes and stay in the loop: the user comments on a line in the browser, you answer in that thread and fix the code. Use when the user says /marj, asks to review local changes together, or wants to talk about a diff line by line."
+description: "Open a GitHub-style review UI for local git changes and stay in the loop: the user comments on a line in the browser, you answer in that thread and fix the code. Use when the user says /marj:review or /marj, asks to review local changes together, or wants to talk about a diff line by line."
 argument-hint: "[revision | a..b | PR url | --staged]"
 ---
 
@@ -16,7 +15,7 @@ The plugin puts `marj` on PATH (a wrapper that uses a global install if there is
 `npx -y @vagonhq/marj`). If `marj` is somehow missing, `npx -y @vagonhq/marj` is the same thing. If that fails
 too there is no Node ≥ 20 — tell the user.
 
-The user may pass a target after the command (`/marj main..feature`); use it as the
+The user may pass a target after the command (`/marj:review main..feature`); use it as the
 `marj` argument.
 
 ## 1. Start the server
