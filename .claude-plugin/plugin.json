@@ -2,7 +2,7 @@
   "name": "marj",
   "displayName": "marj — review local diffs with Claude in the thread",
   "description": "GitHub-style review UI for your local git changes. Comment on a line in the browser; this Claude Code session answers in the thread and, when asked, fixes the code. Adds the /marj:review, /marj:commit, /marj:reload and /marj:reset skills and the `marj` command.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": { "name": "Sezer İstif", "url": "https://github.com/sezeristif" },
   "homepage": "https://github.com/vagonhq/marj",
   "repository": "https://github.com/vagonhq/marj",
