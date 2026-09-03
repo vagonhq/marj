@@ -2,7 +2,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { findLiveServer, GitError, normaliseSession, startServer, stateDir } from '../server/index.js';
+import { findLiveServer, GitError, MARJ_DIR, normaliseSession, startServer, stateDir } from '../server/index.js';
 import { repoRootOf } from '../server/git.js';
 import { findServer, MarjClient, NoServerError } from './api.js';
 import { describeTarget, FILE_LEVEL, isChat, isFileLevel, type AgentEvent, type Thread } from '../shared/types.js';
@@ -21,6 +21,8 @@ Usage
   marj resolve <id>               mark a thread resolved
   marj delete <id>...             delete threads permanently
   marj stop                       stop the running server
+  marj reload                     sync from the remote (fetch, re-pull a PR) and refresh the diff
+  marj reset                      stop every server for this repo and delete all threads/chat (.marj)
 
 Sessions (independent reviews in the same repo)
   marj --session <name>           start an isolated server: its own threads, chat and port
@@ -84,7 +86,7 @@ function parseArgs(argv: string[]): Args {
     positional.push(arg);
   }
 
-  const commands = new Set(['watch', 'threads', 'show', 'reply', 'comment', 'resolve', 'delete', 'stop', 'serve']);
+  const commands = new Set(['watch', 'threads', 'show', 'reply', 'comment', 'resolve', 'delete', 'stop', 'reload', 'reset', 'serve']);
   const command = commands.has(positional[0]) ? positional.shift()! : 'serve';
   return { command, positional, flags };
 }
@@ -337,6 +339,67 @@ async function cmdStop(args: Args): Promise<void> {
   console.log(`stopped marj${tag} (pid ${info.pid})`);
 }
 
+async function cmdReload(args: Args): Promise<void> {
+  const client = await connect(args.flags);
+  const result = await client.reload();
+  if (args.flags.json) {
+    console.log(JSON.stringify(result));
+    return;
+  }
+  if (result.fetched) console.log('reloaded: fetched from the remote and refreshed the diff');
+  else console.log(`refreshed the diff (fetch had problems: ${(result.errors ?? []).join('; ') || 'offline?'})`);
+}
+
+/** Wait until a process is gone, or give up after `ms`. */
+async function waitForExit(pid: number, ms: number): Promise<void> {
+  const until = Date.now() + ms;
+  for (;;) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return; // gone
+    }
+    if (Date.now() > until) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
+async function cmdReset(args: Args): Promise<void> {
+  const repoRoot = await repoRootOf(process.cwd());
+  const marjDir = `${repoRoot}/${MARJ_DIR}`;
+
+  // collect the default server and every session server, kill them all
+  const infoPaths = [`${marjDir}/server.json`];
+  try {
+    const sessions = await fs.readdir(`${marjDir}/sessions`);
+    for (const name of sessions) infoPaths.push(`${marjDir}/sessions/${name}/server.json`);
+  } catch {
+    /* no sessions */
+  }
+  const pids: number[] = [];
+  for (const infoPath of infoPaths) {
+    try {
+      const info = JSON.parse(await fs.readFile(infoPath, 'utf8')) as { pid?: number };
+      if (info.pid) pids.push(info.pid);
+    } catch {
+      /* not running */
+    }
+  }
+  for (const pid of pids) {
+    try {
+      process.kill(pid, 'SIGTERM');
+    } catch {
+      /* already gone */
+    }
+  }
+  // let them flush and exit before we delete, so a late save can't recreate state
+  await Promise.all(pids.map((pid) => waitForExit(pid, 2000)));
+  await fs.rm(marjDir, { recursive: true, force: true });
+
+  if (args.flags.json) console.log(JSON.stringify({ reset: true, stopped: pids.length }));
+  else console.log(`reset marj: stopped ${pids.length} server${pids.length === 1 ? '' : 's'} and cleared ${MARJ_DIR}/`);
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   if (args.flags.help) {
@@ -352,6 +415,8 @@ async function main(): Promise<void> {
     case 'resolve': return cmdResolve(args);
     case 'delete': return cmdDelete(args);
     case 'stop': return cmdStop(args);
+    case 'reload': return cmdReload(args);
+    case 'reset': return cmdReset(args);
     default: return cmdServe(args);
   }
 }

@@ -93,4 +93,8 @@ export class MarjClient {
   patch(id: string, patch: { status?: string; agentTyping?: boolean }): Promise<Thread> {
     return this.request('PATCH', `/api/threads/${encodeURIComponent(id)}`, patch);
   }
+
+  reload(): Promise<{ version: number; fetched: boolean; errors?: string[] }> {
+    return this.request('POST', '/api/reload');
+  }
 }

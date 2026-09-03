@@ -82,6 +82,8 @@ marj resolve t3
 marj comment src/a.ts 42 "this returns 500" --side new
 marj comment src/a.ts "this module does two unrelated things"   # whole file
 marj reply chat --stdin     # answer the "Explain these changes" panel
+marj reload                 # /marj:reload — fetch from the remote and refresh the diff
+marj reset                  # /marj:reset  — stop every server and wipe .marj (start over)
 ```
 
 ## Several reviews at once

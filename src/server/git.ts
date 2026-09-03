@@ -40,6 +40,8 @@ export interface DiffTarget {
   includeUntracked: boolean;
   oldRev?: SideRev;
   newRev?: SideRev;
+  /** extra `git …` argument sets to run on an explicit reload, e.g. re-fetch a PR head */
+  refetch?: string[][];
 }
 
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
@@ -191,7 +193,12 @@ async function pullRequestTarget(cwd: string, pr: PullRequestRef, exact: boolean
 
   const target = await rangeTarget(cwd, `${remote}/${base}`, head, exact);
   const label = title ? `PR #${pr.number} · ${title}` : `PR #${pr.number}`;
-  return { ...target, mode: `${label}  (${branch || head} → ${base})` };
+  // on reload, pull the PR head again (it may have new commits) and the base
+  const refetch = [
+    ['fetch', '--quiet', remote, `+refs/pull/${pr.number}/head:${head}`],
+    ['fetch', '--quiet', remote, base],
+  ];
+  return { ...target, mode: `${label}  (${branch || head} → ${base})`, refetch };
 }
 
 /**

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { buildAnchor, numbered, reanchorAll, sideLines, type NumberedLine } from './anchor.js';
-import { computeDiff, diffFromRaw, GitError, readSideFile, repoRootOf, resolveTarget, type DiffTarget } from './git.js';
+import { computeDiff, diffFromRaw, git, GitError, readSideFile, repoRootOf, resolveTarget, type DiffTarget } from './git.js';
 import { ThreadStore } from './threads.js';
 import { startWatcher } from './watch.js';
 import { FILE_LEVEL, type DiffFile, type DiffPayload, type ServerEvent, type ServerInfo } from '../shared/types.js';
@@ -243,6 +243,21 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   app.post('/api/refresh', async (_req, res) => {
     await refresh();
     res.json({ version: diff.version });
+  });
+
+  /** Sync from the remote (fetch, plus a PR head re-fetch) then recompute. */
+  app.post('/api/reload', async (_req, res) => {
+    if (opts.stdinDiff) return res.json({ version: diff.version, fetched: false });
+    const errors: string[] = [];
+    for (const cmd of [['fetch', '--all', '--prune', '--quiet'], ...(target.refetch ?? [])]) {
+      try {
+        await git(repoRoot, cmd);
+      } catch (err) {
+        errors.push((err as Error).message);
+      }
+    }
+    await refresh();
+    res.json({ version: diff.version, fetched: errors.length === 0, errors });
   });
 
   app.use(express.static(CLIENT_DIR, { index: 'index.html' }));
