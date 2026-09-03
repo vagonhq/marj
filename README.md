@@ -62,7 +62,7 @@ Nothing to install beyond **Node ≥ 20** — the plugin puts `marj` on your PAT
 
 🔀 **Pull requests & merge-base diffs.** A branch that hasn't been rebased shows only *its* commits, not everything that landed on `develop` since — because two revisions are compared from their merge base, exactly like a PR. Paste a PR URL and marj fetches it, asks `gh` for the base and title, and reviews it like the PR page. Reviewing the branch you're **on** (`/marj:review develop`) diffs against the working tree, so it shows the whole branch *and* any uncommitted edit — a **Comment & fix** appears live, no commit or refresh.
 
-🪟 **Panels your way.** Drag the file tree and the chat to any width, hide either with `b` / `c`, flip unified/split with `u`, mark files **Viewed** to fold them away.
+🪟 **Panels your way.** Drag the file tree and the chat to any width, hide the file tree with `b` (chat toggles from its button), flip unified/split with `u`, mark files **Viewed** to fold them away.
 
 🔔 **You'll know when Claude replies.** A toast slides in and a chime plays; desktop notifications fire when the tab is in the background.
 

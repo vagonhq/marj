@@ -262,9 +262,10 @@ export function App() {
         return;
       }
       if (event.key === 'Escape') setDraft(null);
+      // never hijack a modifier chord like ⌘C (copy) or ⌘U (view source)
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (event.key === 'u') setView((current) => (current === 'unified' ? 'split' : 'unified'));
       if (event.key === 'b') setSidebarOpen((open) => !open);
-      if (event.key === 'c') setChatOpen((open) => !open);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -384,7 +385,7 @@ export function App() {
           {pending > 0 && <span className="label accent large">{pending} waiting on Claude</span>}
           <button
             className={`btn invisible chat-toggle${chatOpen ? ' fg-accent' : ''}`}
-            title={chatOpen ? 'Hide the review chat (c)' : 'Chat with Claude about the whole change (c)'}
+            title={chatOpen ? 'Hide the review chat' : 'Chat with Claude about the whole change'}
             onClick={() => setChatOpen((open) => !open)}
           >
             <CommentDiscussionIcon size={16} />
