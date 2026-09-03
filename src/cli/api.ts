@@ -1,12 +1,12 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { repoRootOf } from '../server/git.js';
-import { MARJ_DIR } from '../server/index.js';
+import { normaliseSession, stateDir } from '../server/index.js';
 import type { AgentEvent, ServerInfo, Thread, WaitResponse } from '../shared/types.js';
 
 export class NoServerError extends Error {}
 
-export async function findServer(cwd: string, portOverride?: number): Promise<ServerInfo> {
+export async function findServer(cwd: string, portOverride?: number, session?: string): Promise<ServerInfo> {
   if (portOverride) {
     return {
       port: portOverride,
@@ -24,12 +24,15 @@ export async function findServer(cwd: string, portOverride?: number): Promise<Se
   } catch {
     throw new NoServerError('not inside a git repository');
   }
-  const infoPath = path.join(repoRoot, MARJ_DIR, 'server.json');
+  const slug = normaliseSession(session);
+  const infoPath = path.join(stateDir(repoRoot, slug), 'server.json');
   try {
     const info = JSON.parse(await fs.readFile(infoPath, 'utf8')) as ServerInfo;
     return info;
   } catch {
-    throw new NoServerError(`no marj server running for ${repoRoot} (start one with \`marj\`)`);
+    const which = slug ? `session "${slug}"` : repoRoot;
+    const hint = slug ? `\`marj --session ${slug}\`` : '`marj`';
+    throw new NoServerError(`no marj server running for ${which} (start one with ${hint})`);
   }
 }
 
