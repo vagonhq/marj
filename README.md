@@ -34,16 +34,16 @@ Inside Claude Code, add the plugin once:
 Then in any repo, just say:
 
 ```
-/marj:review
+/marj
 ```
 
 Claude starts the server, opens the browser, and starts watching. Every comment you leave lands in that session **in order**, and its answer appears under the line. Point it at anything git can name:
 
 ```
-/marj:review                                       working tree vs HEAD
-/marj:review --staged                              staged changes
-/marj:review develop..feature                      a branch, PR-style
-/marj:review https://github.com/you/repo/pull/42   a pull request
+/marj                                       working tree vs HEAD
+/marj --staged                              staged changes
+/marj develop..feature                      a branch, PR-style
+/marj https://github.com/you/repo/pull/42   a pull request
 ```
 
 Nothing to install beyond **Node ≥ 20** — the plugin puts `marj` on your PATH and fetches the CLI from npm on first use.
@@ -88,7 +88,7 @@ git diff | marj -                            # a diff from stdin
 
 ## The agent side
 
-Under the hood `/marj:review` just drives the agent-facing half of the CLI — any agent that can run a shell command works, there's nothing Claude-specific in the protocol:
+Under the hood `/marj` just drives the agent-facing half of the CLI — any agent that can run a shell command works, there's nothing Claude-specific in the protocol:
 
 ```bash
 marj watch                  # one line per new comment, blocks in between (long-poll)
