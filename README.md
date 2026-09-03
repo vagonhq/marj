@@ -59,6 +59,17 @@ The plugin adds four commands:
 | `/marj:reload` | fetch from the remote (re-pull a PR head) and refresh the diff, keeping every thread |
 | `/marj:reset` | stop every marj server for the repo, wipe all threads and chat, start clean |
 
+### Where to run it
+
+marj works on a **local clone**. Open Claude Code (or run `marj`) anywhere inside the repo — any
+subdirectory is fine, marj finds the git root itself — and it reviews that repo. Git worktrees
+work the same way: each worktree is its own root with its own `.marj/`.
+
+marj never clones. A pull-request URL is reviewed **inside your local clone of that repo**: marj
+fetches the PR's commits into it (`refs/marj/pr/<n>`) and diffs from the merge base. If you're
+not inside a git repo it stops with a clear error instead of guessing where to put one — so
+`cd` into the repo (or clone it where you want it) first.
+
 ### The fix loop
 
 1. You comment on a line and press **Comment & fix**.

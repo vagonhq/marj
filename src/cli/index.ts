@@ -141,7 +141,15 @@ async function cmdServe(args: Args): Promise<void> {
   const stdinDiff = args.positional.includes('-') ? await readStdin() : undefined;
   const positional = args.positional.filter((p) => p !== '-');
 
-  const repoRoot = await repoRootOf(process.cwd());
+  // marj works on a local clone, from anywhere inside it; it never clones
+  let repoRoot: string;
+  try {
+    repoRoot = await repoRootOf(process.cwd());
+  } catch {
+    throw new Error(
+      `not inside a git repository (${process.cwd()}). marj reviews a local clone: cd into the repo — any subdirectory works — and run it again. It never clones.`,
+    );
+  }
   let session = normaliseSession(sessionOf(args.flags)) ?? undefined;
 
   // one server per (repo, session); reuse an existing one rather than doubling up

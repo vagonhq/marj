@@ -18,6 +18,17 @@ too there is no Node ≥ 20 — tell the user.
 The user may pass a target after the command (`/marj:review main..feature`); use it as the
 `marj` argument.
 
+**marj needs the repo locally, and runs from inside it.** Use the repo root of the current
+Claude Code project (`git rev-parse --show-toplevel`); any subdirectory resolves to it, and a git
+worktree is its own root. marj itself never clones.
+
+If the target is a PR URL for a repo that is **not** cloned here, do **not** clone it on your
+own initiative — a silent `git clone` into whatever directory you happen to be in leaves the
+user with a repo they did not ask for, in a place they did not choose. Stop and tell them: "this
+PR belongs to `owner/repo`, which isn't cloned here. Clone it where you want it (or `cd` into
+your existing clone) and run `/marj:review` again from inside it." Only clone if they explicitly
+say so, and then into the path they name.
+
 ## 1. Start the server
 
 ```bash
