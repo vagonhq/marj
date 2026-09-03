@@ -1,4 +1,4 @@
-import { AlertIcon, ChevronDownIcon, ChevronRightIcon, GitCommitIcon } from '@primer/octicons-react';
+import { AlertIcon, ChevronDownIcon, ChevronRightIcon, GitCommitIcon, SparkleFillIcon } from '@primer/octicons-react';
 import { useEffect, useState } from 'react';
 import type { WorktreeState } from '../../shared/types';
 import { api } from '../api.js';
@@ -13,6 +13,10 @@ interface Props {
   /** the working tree changed (commit, checkout): reload the diff and this list */
   onChanged: () => void;
   onToast: (title: string, body: string) => void;
+  /** send the "commit and push this" request to Claude via the review chat */
+  onAskClaude: () => Promise<void>;
+  /** true while Claude still owes an answer in the chat */
+  claudeBusy: boolean;
 }
 
 const noop = () => {};
@@ -24,7 +28,7 @@ const noopAsync = async () => {};
  * (folded). Commit or commit-and-push from here. When the working tree is on a
  * different branch than the one under review, say so and offer to switch.
  */
-export function UncommittedSection({ state, author, view, locationIndex, onChanged, onToast }: Props) {
+export function UncommittedSection({ state, author, view, locationIndex, onChanged, onToast, onAskClaude, claudeBusy }: Props) {
   const [open, setOpen] = useState(() => {
     try {
       return localStorage.getItem('marj:worktree') !== 'closed';
@@ -33,7 +37,7 @@ export function UncommittedSection({ state, author, view, locationIndex, onChang
     }
   });
   const [message, setMessage] = useState('');
-  const [busy, setBusy] = useState<'commit' | 'push' | 'checkout' | null>(null);
+  const [busy, setBusy] = useState<'commit' | 'push' | 'checkout' | 'ask' | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** files whose default fold the user flipped */
   const [flipped, setFlipped] = useState<Set<string>>(new Set());
@@ -88,6 +92,20 @@ export function UncommittedSection({ state, author, view, locationIndex, onChang
       const result = await api.checkout();
       onToast('Switched branch', `now on ${result.branch} — fixes will land here`);
       onChanged();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const askClaude = async () => {
+    if (busy) return;
+    setBusy('ask');
+    setError(null);
+    try {
+      await onAskClaude();
+      onToast('Asked Claude to commit & push', 'it will write the message and commit — watch the chat');
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -182,6 +200,15 @@ export function UncommittedSection({ state, author, view, locationIndex, onChang
                 </button>
                 <button className="btn primary" disabled={!message.trim() || busy !== null} onClick={() => void commit(true)}>
                   {busy === 'push' ? 'Pushing…' : 'Commit & push'}
+                </button>
+                <span className="worktree-or">or</span>
+                <button
+                  className="btn ask-claude"
+                  title="Claude writes the commit message, commits and pushes"
+                  disabled={busy !== null || claudeBusy}
+                  onClick={() => void askClaude()}
+                >
+                  <SparkleFillIcon size={14} /> {busy === 'ask' ? 'Asking…' : claudeBusy ? 'Claude is on it…' : 'Ask Claude to commit & push'}
                 </button>
               </div>
             </>

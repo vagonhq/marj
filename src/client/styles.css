@@ -749,3 +749,6 @@ tr.line.flash td { animation: flash-row 1.6s ease-out; }
 }
 .worktree-message:focus { outline: none; border-color: var(--focus-outlineColor); box-shadow: 0 0 0 3px var(--bgColor-accent-muted); }
 .worktree-error { padding: 8px 14px 12px; font: 12px var(--font-mono); color: var(--fgColor-danger); white-space: pre-wrap; }
+.worktree-or { font-size: 12px; color: var(--fgColor-muted); }
+.btn.ask-claude { color: var(--fgColor-accent); }
+.btn.ask-claude:disabled { opacity: 0.6; }

@@ -21,6 +21,7 @@ Usage
   marj resolve <id>               mark a thread resolved
   marj delete <id>...             delete threads permanently
   marj stop                       stop the running server
+  marj commit -m <msg> [--push] [path...]   commit the uncommitted changes (all, or just these paths)
   marj reload                     sync from the remote (fetch, re-pull a PR) and refresh the diff
   marj reset                      stop every server for this repo and delete all threads/chat (.marj)
 
@@ -53,6 +54,7 @@ Options
   --session <name> (any command) target an isolated review, not the default one
   --resolve        (reply) mark the thread resolved afterwards
   --typing         (reply) only flip the "Claude is typing" indicator
+  --push           (commit) push after committing (publishes the branch if it has no upstream)
   --cursor <n>     (watch) resume from a sequence number
   --no-catch-up    (watch) skip comments that arrived before the watch started
   -h, --help       this text
@@ -67,7 +69,7 @@ interface Args {
 function parseArgs(argv: string[]): Args {
   const flags: Record<string, string | boolean> = {};
   const positional: string[] = [];
-  const withValue = new Set(['port', 'host', 'context', 'cursor', 'side', 'timeout', 'session']);
+  const withValue = new Set(['port', 'host', 'context', 'cursor', 'side', 'timeout', 'session', 'message']);
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -83,10 +85,11 @@ function parseArgs(argv: string[]): Args {
       continue;
     }
     if (arg === '-h') { flags.help = true; continue; }
+    if (arg === '-m') { flags.message = argv[++i] ?? ''; continue; }
     positional.push(arg);
   }
 
-  const commands = new Set(['watch', 'threads', 'show', 'reply', 'comment', 'resolve', 'delete', 'stop', 'reload', 'reset', 'serve']);
+  const commands = new Set(['watch', 'threads', 'show', 'reply', 'comment', 'resolve', 'delete', 'stop', 'commit', 'reload', 'reset', 'serve']);
   const command = commands.has(positional[0]) ? positional.shift()! : 'serve';
   return { command, positional, flags };
 }
@@ -339,6 +342,30 @@ async function cmdStop(args: Args): Promise<void> {
   console.log(`stopped marj${tag} (pid ${info.pid})`);
 }
 
+/** Commit (and push) the working tree through the running server, so the UI refreshes too. */
+async function cmdCommit(args: Args): Promise<void> {
+  // -m given (even blank) means "this is the message"; only without -m do we read a piped heredoc,
+  // so a blank -m fails fast instead of hanging on stdin
+  const message = typeof args.flags.message === 'string' ? args.flags.message : await readStdin();
+  if (!message.trim()) {
+    throw new Error('usage: marj commit -m "<message>" [--push] [path...]   (or pipe the message on stdin)');
+  }
+  const client = await connect(args.flags);
+  const result = await client.commit({
+    message,
+    paths: args.positional.length > 0 ? args.positional : undefined,
+    push: args.flags.push === true,
+  });
+  if (args.flags.json) {
+    console.log(JSON.stringify(result));
+    return;
+  }
+  const where = `${result.sha.slice(0, 7)} on ${result.branch ?? 'a detached HEAD'}`;
+  if (result.pushed) console.log(`committed ${where} and pushed`);
+  else if (args.flags.push) console.log(`committed ${where}, but the push failed: ${result.pushError ?? 'unknown error'}`);
+  else console.log(`committed ${where}`);
+}
+
 async function cmdReload(args: Args): Promise<void> {
   const client = await connect(args.flags);
   const result = await client.reload();
@@ -415,6 +442,7 @@ async function main(): Promise<void> {
     case 'resolve': return cmdResolve(args);
     case 'delete': return cmdDelete(args);
     case 'stop': return cmdStop(args);
+    case 'commit': return cmdCommit(args);
     case 'reload': return cmdReload(args);
     case 'reset': return cmdReset(args);
     default: return cmdServe(args);

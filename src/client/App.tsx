@@ -11,7 +11,7 @@ import {
   SunIcon,
 } from '@primer/octicons-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { describeTarget, isChat, type DiffFile, type DiffPayload, type Intent, type Thread, type WorktreeState } from '../shared/types';
+import { CHAT_THREAD, COMMIT_PROMPT, describeTarget, isChat, type DiffFile, type DiffPayload, type Intent, type Thread, type WorktreeState } from '../shared/types';
 import { api, subscribe } from './api.js';
 import { ChatPanel } from './components/ChatPanel.js';
 import { FileCard } from './components/FileCard.js';
@@ -483,6 +483,12 @@ export function App() {
             onToast={(title, body) =>
               setToasts((current) => [...current, { id: ++toastId.current, title, body }].slice(-4))
             }
+            onAskClaude={async () => {
+              await api.reply(CHAT_THREAD, COMMIT_PROMPT, 'fix');
+              setChatOpen(true);
+              void loadThreads();
+            }}
+            claudeBusy={!!chat && chat.status !== 'resolved' && chat.messages.at(-1)?.role === 'user'}
           />
           {diff && files.length === 0 && <div className="empty">No changes to review.</div>}
           {files.map((file) => (

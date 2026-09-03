@@ -97,4 +97,13 @@ export class MarjClient {
   reload(): Promise<{ version: number; fetched: boolean; errors?: string[] }> {
     return this.request('POST', '/api/reload');
   }
+
+  commit(input: { message: string; paths?: string[]; push?: boolean }): Promise<{
+    sha: string;
+    branch: string | null;
+    pushed: boolean;
+    pushError?: string;
+  }> {
+    return this.request('POST', '/api/commit', input);
+  }
 }

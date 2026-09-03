@@ -113,10 +113,13 @@ top (also `curl -s <url>/api/diff | jq -r .mode`).
 **Every edit you make is an uncommitted change in the user's local repo** — no worktree, no
 copy, no commit. The browser has an **Uncommitted changes** section at the top of the diff that
 lists exactly these (HEAD → working tree, plus untracked files), badges the files changed during
-this review, and lets the user **Commit** or **Commit & push** with a message. So after a
-`[fix]`, point there: "değişiklik yukarıdaki *Uncommitted changes* bölümünde, oradan
-commit'leyebilirsin". Do **not** commit or push on your own after a fix; only when the user
-asks you to (then use your normal git flow: branch, commit, push, PR).
+this review, and lets the user **Commit** or **Commit & push** with a message — or press
+**Ask Claude to commit & push**, which reaches you as a `CHAT chat [fix]` asking you to commit.
+So after a `[fix]`, point there: "değişiklik yukarıdaki *Uncommitted changes* bölümünde, oradan
+commit'leyebilirsin ya da bana commit'le de". Do **not** commit or push on your own after a fix.
+When the user *does* ask — that chat button, `/marj:commit`, or a thread saying "commit this" —
+follow the `commit` skill: write the message from the diff and run
+`marj commit --push -m "…"`, which commits through the server so the browser updates.
 
 That section also warns when the working tree is on a **different branch** than the one under
 review (e.g. reviewing PR #42 while on `develop`): a fix would land on the wrong branch. Read

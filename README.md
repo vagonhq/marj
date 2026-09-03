@@ -62,7 +62,7 @@ Nothing to install beyond **Node ≥ 20** — the plugin puts `marj` on your PAT
 
 🔀 **Pull requests & merge-base diffs.** A branch that hasn't been rebased shows only *its* commits, not everything that landed on `develop` since — because two revisions are compared from their merge base, exactly like a PR. Paste a PR URL and marj fetches it, asks `gh` for the base and title, and reviews it like the PR page. Reviewing the branch you're **on** (`/marj:review develop`) diffs against the working tree, so it shows the whole branch *and* any uncommitted edit — a **Comment & fix** appears live, no commit or refresh.
 
-📝 **Uncommitted changes, ready to commit.** Every fix lands in your local repo as a plain uncommitted edit — no worktree, no copy. A section at the top lists exactly what's not committed yet (HEAD → working tree, untracked included), badges the files changed during this review, folds pre-existing local edits, and lets you **Commit** or **Commit & push** with a message. If you're on a different branch than the one you're reviewing, it says so and offers to switch, so a fix never lands in the wrong place.
+📝 **Uncommitted changes, ready to commit.** Every fix lands in your local repo as a plain uncommitted edit — no worktree, no copy. A section at the top lists exactly what's not committed yet (HEAD → working tree, untracked included), badges the files changed during this review, folds pre-existing local edits, and lets you **Commit** or **Commit & push** with a message — or **Ask Claude to commit & push** and let it write the message (`/marj:commit` does the same). If you're on a different branch than the one you're reviewing, it says so and offers to switch, so a fix never lands in the wrong place.
 
 🪟 **Panels your way.** Drag the file tree and the chat to any width, hide the file tree with `b` (chat toggles from its button), flip unified/split with `u`, mark files **Viewed** to fold them away.
 
@@ -84,6 +84,7 @@ marj resolve t3
 marj comment src/a.ts 42 "this returns 500" --side new
 marj comment src/a.ts "this module does two unrelated things"   # whole file
 marj reply chat --stdin     # answer the "Explain these changes" panel
+marj commit --push -m "…"   # /marj:commit — commit (and push) the uncommitted changes
 marj reload                 # /marj:reload — fetch from the remote and refresh the diff
 marj reset                  # /marj:reset  — stop every server and wipe .marj (start over)
 ```

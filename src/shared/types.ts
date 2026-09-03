@@ -90,6 +90,10 @@ export const EXPLAIN_PROMPT =
   'Explain what these changes do as a whole: the goal, then file by file what was added or changed and why. ' +
   'Point at the code with `path:line` references so I can jump to them.';
 
+/** What the "Ask Claude to commit & push" button sends into the chat. */
+export const COMMIT_PROMPT =
+  'Commit the uncommitted changes from this review with a clear, conventional commit message, then push them.';
+
 /** "src/a.ts:12-15", "src/a.ts:12", or just "src/a.ts" for a file-level thread */
 export function describeTarget(target: { file: string; startLine: number; endLine: number }): string {
   if (isFileLevel(target)) return target.file;
