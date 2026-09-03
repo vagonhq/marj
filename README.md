@@ -28,7 +28,7 @@ Inside Claude Code, add the plugin once:
 
 ```
 /plugin marketplace add vagonhq/marj
-/plugin install marj@marj
+/plugin install marj@vagonhq
 ```
 
 Then in any repo, just say:

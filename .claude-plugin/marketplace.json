@@ -1,6 +1,9 @@
 {
-  "name": "marj",
-  "owner": { "name": "Vagon", "url": "https://github.com/vagonhq" },
+  "name": "vagonhq",
+  "owner": {
+    "name": "Vagon",
+    "url": "https://github.com/vagonhq"
+  },
   "plugins": [
     {
       "name": "marj",
