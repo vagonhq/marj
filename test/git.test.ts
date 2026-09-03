@@ -64,10 +64,33 @@ describe('review targets', () => {
     expect(files).toEqual(['added:feature.txt', 'deleted:main.txt']);
   });
 
-  it('a bare branch name reviews the current branch into it', async () => {
+  it('a bare branch name reviews the current branch live against the working tree', async () => {
     const { target, files } = await paths(['main']);
-    expect(target.args).toEqual(['main...feature']);
+    // merge base -> working tree, so uncommitted fixes show; not a commit range
+    expect(target.newRev).toBeNull();
+    expect(target.includeUntracked).toBe(true);
+    expect(target.mode).toMatch(/\(working tree\)$/);
     expect(files).toEqual(['added:feature.txt']);
+  });
+
+  it('shows an uncommitted fix on the current branch immediately', async () => {
+    await fs.appendFile(path.join(repo, 'feature.txt'), 'a fix Claude just made\n');
+    await fs.writeFile(path.join(repo, 'untracked.txt'), 'brand new\n');
+    try {
+      const { files } = await paths(['main']);
+      const feature = (await computeDiff(repo, await resolveTarget(repo, ['main']), 3)).files.find((f) => f.path === 'feature.txt');
+      expect(feature?.hunks.some((h) => h.lines.some((l) => l.text.includes('a fix Claude just made')))).toBe(true);
+      expect(files).toContain('added:untracked.txt');
+    } finally {
+      run('checkout', '--', 'feature.txt');
+      await fs.rm(path.join(repo, 'untracked.txt'), { force: true });
+    }
+  });
+
+  it('--exact on a bare branch still compares the tips', async () => {
+    const { target } = await paths(['main'], { exact: true });
+    expect(target.args).toEqual(['main', 'feature']);
+    expect(target.newRev).toBe('feature');
   });
 
   it('a commit hash is still a single commit', async () => {

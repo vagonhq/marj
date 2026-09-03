@@ -94,6 +94,30 @@ async function rangeTarget(cwd: string, a: string, b: string, exact: boolean): P
   return { args: [`${a}...${b}`], mode: `${a}...${b}`, includeUntracked: false, oldRev: base, newRev: b };
 }
 
+/**
+ * Reviewing the branch you are standing on, as a PR into `base`: diff the merge
+ * base against the WORKING TREE rather than the branch tip, so the whole branch
+ * shows AND uncommitted edits — a [fix] Claude just made — appear live and
+ * re-anchor, instead of being invisible until committed. Falls back to a commit
+ * range when there is no merge base.
+ */
+async function liveBranchTarget(cwd: string, base: string, here: string): Promise<DiffTarget> {
+  if (!(await isCommitish(cwd, base))) throw new GitError(`unknown revision: ${base}`);
+  let mergeBase: string;
+  try {
+    mergeBase = (await git(cwd, ['merge-base', base, 'HEAD'])).trim();
+  } catch {
+    return rangeTarget(cwd, base, here, false);
+  }
+  return {
+    args: [mergeBase],
+    mode: `${base}...${here} (working tree)`,
+    includeUntracked: true,
+    oldRev: mergeBase,
+    newRev: null,
+  };
+}
+
 export interface PullRequestRef {
   number: number;
   /** owner/repo when the reference named one */
@@ -235,10 +259,11 @@ export async function resolveTarget(
       const [a, b] = arg.split('..');
       return rangeTarget(cwd, a || 'HEAD', b || 'HEAD', exact);
     }
-    // `marj develop` on a feature branch: review the branch as a PR into develop
+    // `marj develop` on a feature branch: review the branch as a PR into develop.
+    // Live against the working tree so fixes show, unless --exact was asked for.
     const here = await currentBranch(cwd);
     if (here && here !== arg && (await isBranch(cwd, arg))) {
-      return rangeTarget(cwd, arg, here, exact);
+      return exact ? rangeTarget(cwd, arg, here, true) : liveBranchTarget(cwd, arg, here);
     }
     if (await isCommitish(cwd, arg)) {
       const subject = (await git(cwd, ['log', '-1', '--format=%h %s', arg])).trim();

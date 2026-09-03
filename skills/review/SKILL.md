@@ -34,9 +34,11 @@ Targets: `marj` (working tree vs HEAD, the default), `marj --staged`, `marj <com
 `marj develop` (the current branch as a PR into develop), `marj develop..feature`, `marj <a> <b>`,
 and a GitHub pull request: `marj https://github.com/o/r/pull/12`, `marj o/r#12`, `marj #12`
 (fetches the PR head and diffs it from the merge base, like the PR page).
-Two revisions are compared from their merge base like a GitHub PR, so an unrebased branch shows
-only its own commits; `--exact` compares the tips. Pass the user's intent through; ask only if
-truly unclear.
+`marj develop` (reviewing the branch you are on) diffs the merge base against the **working
+tree**, so it shows the whole branch like a PR *and* any uncommitted edits — so a `[fix]` you
+make shows up live. `marj <a>..<b>` and `marj <a> <b>` name two commits and stay commit-to-commit
+(an unrebased branch shows only its own commits); `--exact` compares the tips. Pass the user's
+intent through; ask only if truly unclear.
 
 ## 2. Arm the watch — do this immediately after starting
 
@@ -92,8 +94,21 @@ marj show t3                        # the thread plus the surrounding code, > ma
 ```
 
 Read the real file too when the diff context is not enough. Then, **only if the comment came in
-as `[fix]`**, make the change with your normal editing tools — the browser refreshes the diff on
-its own and the thread re-anchors to the rewritten line.
+as `[fix]`**, edit the file with your normal editing tools. **Do not commit and do not refresh
+anything** — marj watches the working tree, recomputes the diff, and re-anchors the thread to
+the rewritten line on its own. Edit the actual file shown in the diff; that is the file on disk.
+
+**Where the fix must land, and whether it will show:** marj tells you in the mode label at the
+top (also `curl -s <url>/api/diff | jq -r .mode`).
+
+- Working-tree reviews — the default `marj`, `marj .`, `marj --staged`, and `marj <base>`
+  reviewing the branch you are on (`… (working tree)` in the label) — diff against the files on
+  disk, so your edit appears within a second. This is the normal case.
+- A committed range or PR you are **not** standing on — `marj <a>..<b>` of another branch, a
+  commit, or `marj <pr-url>` — diffs commit to commit. A working-tree edit is real but **will not
+  appear in that diff**. Say so in your reply: the change was made, but this review compares
+  commits, so it shows once committed (or start `marj` on the working tree to fix live). Never
+  keep editing trying to make it appear.
 
 Post the answer (heredoc keeps markdown intact):
 
