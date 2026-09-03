@@ -65,6 +65,10 @@ marj works on a **local clone**. Open Claude Code (or run `marj`) anywhere insid
 subdirectory is fine, marj finds the git root itself — and it reviews that repo. Git worktrees
 work the same way: each worktree is its own root with its own `.marj/`.
 
+If Claude Code offers to work in an isolated worktree, say no during a review: marj watches the
+checkout it was started in, and a fix made in a worktree never reaches the diff. `git worktree
+list` shows what has piled up; `git worktree remove <path>` cleans one out.
+
 marj never clones. A pull-request URL is reviewed **inside your local clone of that repo**: marj
 fetches the PR's commits into it (`refs/marj/pr/<n>`) and diffs from the merge base. If you're
 not inside a git repo it stops with a clear error instead of guessing where to put one — so

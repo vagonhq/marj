@@ -18,6 +18,11 @@ too there is no Node ≥ 20 — tell the user.
 The user may pass a target after the command (`/marj:review main..feature`); use it as the
 `marj` argument.
 
+**Never work in a git worktree during a review.** Do not use `EnterWorktree` or agent
+`isolation: "worktree"` while marj is running: marj diffs the checkout it was started in, so an
+edit made in a worktree is **invisible** to the review, and the worktree lingers under
+`.claude/worktrees/` afterwards. Make every `[fix]` in the checkout marj is watching.
+
 **marj needs the repo locally, and runs from inside it.** Use the repo root of the current
 Claude Code project (`git rev-parse --show-toplevel`); any subdirectory resolves to it, and a git
 worktree is its own root. marj itself never clones.
