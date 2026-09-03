@@ -8,6 +8,8 @@ interface Props {
   autoFocus?: boolean;
   /** "Comment" for a new thread, "Reply" inside one */
   submitLabel?: string;
+  /** chat-style: plain Enter sends, Shift+Enter is a newline */
+  enterToSend?: boolean;
   onSubmit: (body: string, intent: Intent) => Promise<void>;
   onCancel?: () => void;
 }
@@ -17,6 +19,7 @@ export function Composer({
   placeholder = 'Leave a comment',
   autoFocus,
   submitLabel = 'Comment',
+  enterToSend,
   onSubmit,
   onCancel,
 }: Props) {
@@ -53,9 +56,15 @@ export function Composer({
         rows={Math.min(14, Math.max(3, value.split('\n').length + 1))}
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={(event) => {
-          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+          if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+          if (event.metaKey || event.ctrlKey) {
+            // ⌘↵ answer · ⌘⇧↵ fix, everywhere
             event.preventDefault();
             void submit(event.shiftKey ? 'fix' : 'ask');
+          } else if (enterToSend && !event.shiftKey) {
+            // chat: plain Enter sends, Shift+Enter drops a newline
+            event.preventDefault();
+            void submit('ask');
           }
         }}
       />

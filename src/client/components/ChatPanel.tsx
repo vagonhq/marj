@@ -98,7 +98,7 @@ export function ChatPanel({ chat, files, author, onClose, onChanged, onNavigate 
         >
           <SparkleFillIcon size={14} /> Explain these changes
         </button>
-        <Composer placeholder="Ask about the change…" submitLabel="Send" onSubmit={send} />
+        <Composer placeholder="Ask about the change…  (Enter to send, Shift+Enter for a newline)" submitLabel="Send" enterToSend onSubmit={send} />
       </div>
     </aside>
   );
