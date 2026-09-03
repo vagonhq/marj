@@ -5,7 +5,8 @@ export interface Toast {
   id: number;
   title: string;
   body: string;
-  threadId: string;
+  /** open this thread on click; commit toasts have none */
+  threadId?: string;
 }
 
 interface Props {
@@ -33,7 +34,7 @@ export function Toasts({ toasts, onDismiss, onOpen }: Props) {
           className="toast"
           role="status"
           onClick={() => {
-            onOpen(toast.threadId);
+            if (toast.threadId) onOpen(toast.threadId);
             onDismiss(toast.id);
           }}
         >

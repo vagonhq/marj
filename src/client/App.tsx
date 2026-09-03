@@ -11,12 +11,13 @@ import {
   SunIcon,
 } from '@primer/octicons-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { describeTarget, isChat, type DiffFile, type DiffPayload, type Intent, type Thread } from '../shared/types';
+import { describeTarget, isChat, type DiffFile, type DiffPayload, type Intent, type Thread, type WorktreeState } from '../shared/types';
 import { api, subscribe } from './api.js';
 import { ChatPanel } from './components/ChatPanel.js';
 import { FileCard } from './components/FileCard.js';
 import { FileTree } from './components/FileTree.js';
 import { Toasts, type Toast } from './components/Toasts.js';
+import { UncommittedSection } from './components/UncommittedSection.js';
 import type { DraftTarget } from './components/types.js';
 import { jumpTo } from './flash.js';
 import { askForNotifications, chime, desktopNotify } from './notify.js';
@@ -126,6 +127,8 @@ export function App() {
   const [activeFile, setActiveFile] = useState<string | null>(null);
   /** a line a chat link asked for; the file card expands to it if the diff does not show it */
   const [reveal, setReveal] = useState<{ file: string; line: number; nonce: number } | null>(null);
+  /** HEAD -> working tree: the fixes of this review and anything else not committed */
+  const [worktree, setWorktree] = useState<WorktreeState | null>(null);
 
   const pulseTimer = useRef<number>();
   const collapsedInitialised = useRef(false);
@@ -174,6 +177,14 @@ export function App() {
       setError(null);
     } catch (err) {
       setError((err as Error).message);
+    }
+  }, []);
+
+  const loadWorktree = useCallback(async () => {
+    try {
+      setWorktree(await api.worktree());
+    } catch {
+      /* stdin diffs and hiccups: keep what we had */
     }
   }, []);
 
@@ -226,16 +237,18 @@ export function App() {
   useEffect(() => {
     void loadDiff();
     void loadThreads();
+    void loadWorktree();
     return subscribe((event) => {
       if (event.type === 'diff:changed') {
         void loadDiff();
+        void loadWorktree();
         setPulse(true);
         window.clearTimeout(pulseTimer.current);
         pulseTimer.current = window.setTimeout(() => setPulse(false), 900);
       }
       if (event.type === 'threads:changed') void loadThreads();
     });
-  }, [loadDiff, loadThreads]);
+  }, [loadDiff, loadThreads, loadWorktree]);
 
   const repoName = diff?.repoRoot.split('/').filter(Boolean).pop() ?? '';
   useEffect(() => {
@@ -458,6 +471,19 @@ export function App() {
           </>
         )}
         <main className="stream">
+          <UncommittedSection
+            state={worktree}
+            author={diff?.author ?? 'you'}
+            view={view}
+            locationIndex={locationIndex}
+            onChanged={() => {
+              void loadDiff();
+              void loadWorktree();
+            }}
+            onToast={(title, body) =>
+              setToasts((current) => [...current, { id: ++toastId.current, title, body }].slice(-4))
+            }
+          />
           {diff && files.length === 0 && <div className="empty">No changes to review.</div>}
           {files.map((file) => (
             <FileCard

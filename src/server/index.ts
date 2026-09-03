@@ -4,10 +4,25 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { buildAnchor, numbered, reanchorAll, sideLines, type NumberedLine } from './anchor.js';
-import { computeDiff, diffFromRaw, git, GitError, readSideFile, repoRootOf, resolveTarget, type DiffTarget } from './git.js';
+import {
+  checkoutReviewed,
+  commitChanges,
+  computeDiff,
+  currentBranchName,
+  diffFromRaw,
+  git,
+  GitError,
+  hasHead,
+  readSideFile,
+  repoRootOf,
+  resolveTarget,
+  touchedSince,
+  worktreeTarget,
+  type DiffTarget,
+} from './git.js';
 import { ThreadStore } from './threads.js';
 import { startWatcher } from './watch.js';
-import { FILE_LEVEL, type DiffFile, type DiffPayload, type ServerEvent, type ServerInfo } from '../shared/types.js';
+import { FILE_LEVEL, type DiffFile, type DiffPayload, type ServerEvent, type ServerInfo, type WorktreeState } from '../shared/types.js';
 
 const CLIENT_DIR = fileURLToPath(new URL('../../client', import.meta.url));
 
@@ -83,6 +98,8 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   await ensureGitExclude(repoRoot);
 
   const store = await ThreadStore.load(path.join(marjDir, 'threads.json'));
+  /** files modified after this are the fixes of this review, not pre-existing local edits */
+  const startedAt = new Date();
 
   let target: DiffTarget = { args: [], mode: 'stdin', includeUntracked: false };
   if (!opts.stdinDiff) {
@@ -243,6 +260,60 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   app.post('/api/refresh', async (_req, res) => {
     await refresh();
     res.json({ version: diff.version });
+  });
+
+  /**
+   * What is not committed yet: HEAD -> working tree (+ untracked). Independent
+   * of the review target, so a fix shows here whatever is being reviewed, and
+   * so do pre-existing local edits. Also says whether the working tree is on
+   * the branch under review — if not, a fix would land somewhere else.
+   */
+  app.get('/api/worktree', async (_req, res) => {
+    const empty: WorktreeState = { branch: null, reviewedBranch: null, onReviewedBranch: true, pr: null, files: [], touched: [], version: diff.version };
+    if (opts.stdinDiff) return res.json(empty);
+    try {
+      const head = await hasHead(repoRoot);
+      const wt = await computeDiff(repoRoot, worktreeTarget(head), context);
+      const branch = await currentBranchName(repoRoot);
+      const reviewedBranch = target.reviewedBranch ?? null;
+      const onReviewedBranch = !reviewedBranch || target.newRev === null || reviewedBranch === branch;
+      const touched = await touchedSince(repoRoot, wt.files.map((f) => f.path), startedAt);
+      const state: WorktreeState = { branch, reviewedBranch, onReviewedBranch, pr: target.pr ?? null, files: wt.files, touched, version: diff.version };
+      res.json(state);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  /** Commit (and optionally push) the working tree, from an explicit click in the UI. */
+  app.post('/api/commit', async (req, res) => {
+    const { message, paths, push } = req.body ?? {};
+    if (typeof message !== 'string' || !message.trim()) return res.status(400).json({ error: 'a commit message is required' });
+    try {
+      const result = await commitChanges(repoRoot, {
+        message,
+        paths: Array.isArray(paths) ? paths.filter((p): p is string => typeof p === 'string') : undefined,
+        push: push === true,
+      });
+      await refresh();
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  });
+
+  /** Put the working tree on the branch under review so fixes land there, then re-resolve the diff. */
+  app.post('/api/checkout', async (_req, res) => {
+    try {
+      const branch = await checkoutReviewed(repoRoot, target);
+      if (!opts.stdinDiff) {
+        target = await resolveTarget(repoRoot, opts.positional, { staged: opts.staged, exact: opts.exact });
+      }
+      await refresh();
+      res.json({ branch, mode: diff.mode });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
   });
 
   /** Sync from the remote (fetch, plus a PR head re-fetch) then recompute. */

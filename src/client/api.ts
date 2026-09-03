@@ -1,4 +1,4 @@
-import type { DiffPayload, Intent, ServerEvent, Thread } from '../shared/types';
+import type { DiffPayload, Intent, ServerEvent, Thread, WorktreeState } from '../shared/types';
 
 async function json<T>(input: string, init?: RequestInit): Promise<T> {
   const res = await fetch(input, {
@@ -35,6 +35,13 @@ export const api = {
   patch: (id: string, patch: { status?: string }) =>
     json<Thread>(`/api/threads/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   refresh: () => json<{ version: number }>('/api/refresh', { method: 'POST' }),
+  worktree: () => json<WorktreeState>('/api/worktree'),
+  commit: (input: { message: string; paths?: string[]; push?: boolean }) =>
+    json<{ sha: string; branch: string | null; pushed: boolean; pushError?: string }>('/api/commit', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  checkout: () => json<{ branch: string; mode: string }>('/api/checkout', { method: 'POST' }),
 };
 
 /** SSE with automatic reconnect. */

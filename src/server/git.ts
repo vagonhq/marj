@@ -42,6 +42,10 @@ export interface DiffTarget {
   newRev?: SideRev;
   /** extra `git …` argument sets to run on an explicit reload, e.g. re-fetch a PR head */
   refetch?: string[][];
+  /** the branch whose code is on the new side, when the review is of a branch (null: a commit / the working tree) */
+  reviewedBranch?: string | null;
+  /** pull request number when the review is of a PR */
+  pr?: number;
 }
 
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
@@ -93,7 +97,7 @@ async function rangeTarget(cwd: string, a: string, b: string, exact: boolean): P
     // unrelated histories: there is no branch point, so the tips are all we have
     return { args: [a, b], mode: `${a} → ${b} (no merge base)`, includeUntracked: false, oldRev: a, newRev: b };
   }
-  return { args: [`${a}...${b}`], mode: `${a}...${b}`, includeUntracked: false, oldRev: base, newRev: b };
+  return { args: [`${a}...${b}`], mode: `${a}...${b}`, includeUntracked: false, oldRev: base, newRev: b, reviewedBranch: b };
 }
 
 /**
@@ -117,6 +121,7 @@ async function liveBranchTarget(cwd: string, base: string, here: string): Promis
     includeUntracked: true,
     oldRev: mergeBase,
     newRev: null,
+    reviewedBranch: here,
   };
 }
 
@@ -198,7 +203,117 @@ async function pullRequestTarget(cwd: string, pr: PullRequestRef, exact: boolean
     ['fetch', '--quiet', remote, `+refs/pull/${pr.number}/head:${head}`],
     ['fetch', '--quiet', remote, base],
   ];
-  return { ...target, mode: `${label}  (${branch || head} → ${base})`, refetch };
+  return {
+    ...target,
+    mode: `${label}  (${branch || head} → ${base})`,
+    refetch,
+    reviewedBranch: branch || null,
+    pr: pr.number,
+  };
+}
+
+/* ------------------------------------------------------------------------- */
+/* the working tree: what is not committed yet, and committing it            */
+/* ------------------------------------------------------------------------- */
+
+/** Everything in the working tree that HEAD does not have: modified, staged and untracked. */
+export function worktreeTarget(hasHead: boolean): DiffTarget {
+  return hasHead
+    ? { args: ['HEAD'], mode: 'uncommitted', includeUntracked: true, oldRev: 'HEAD', newRev: null }
+    : { args: [], mode: 'uncommitted', includeUntracked: true, newRev: null };
+}
+
+export async function hasHead(cwd: string): Promise<boolean> {
+  return isCommitish(cwd, 'HEAD');
+}
+
+export async function currentBranchName(cwd: string): Promise<string | null> {
+  return currentBranch(cwd);
+}
+
+/** Paths among `files` whose on-disk mtime is newer than `since` — i.e. touched during this review. */
+export async function touchedSince(repoRoot: string, files: string[], since: Date): Promise<string[]> {
+  const out: string[] = [];
+  for (const file of files) {
+    try {
+      const stat = await fs.stat(path.join(repoRoot, file));
+      if (stat.mtimeMs > since.getTime()) out.push(file);
+    } catch {
+      /* deleted in the working tree: nothing to stat */
+    }
+  }
+  return out;
+}
+
+export interface CommitInput {
+  message: string;
+  /** limit the commit to these paths; default: everything uncommitted */
+  paths?: string[];
+  push?: boolean;
+}
+
+export interface CommitResult {
+  sha: string;
+  branch: string | null;
+  pushed: boolean;
+  /** set when the commit succeeded but the push did not */
+  pushError?: string;
+}
+
+/**
+ * Stage and commit the working tree (or the given paths), optionally push.
+ * The one place marj writes to git; only ever called from an explicit user
+ * action in the UI.
+ */
+export async function commitChanges(repoRoot: string, input: CommitInput): Promise<CommitResult> {
+  const message = input.message.trim();
+  if (!message) throw new GitError('a commit message is required');
+
+  if (input.paths && input.paths.length > 0) await git(repoRoot, ['add', '-A', '--', ...input.paths]);
+  else await git(repoRoot, ['add', '-A']);
+
+  const staged = (await git(repoRoot, ['diff', '--cached', '--name-only'])).trim();
+  if (!staged) throw new GitError('nothing to commit');
+
+  await git(repoRoot, ['commit', '--quiet', '-m', message]);
+  const sha = (await git(repoRoot, ['rev-parse', 'HEAD'])).trim();
+  const branch = await currentBranch(repoRoot);
+
+  if (!input.push) return { sha, branch, pushed: false };
+  if (!branch) return { sha, branch, pushed: false, pushError: 'detached HEAD: check out a branch to push' };
+  try {
+    try {
+      await git(repoRoot, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
+      await git(repoRoot, ['push', '--quiet']);
+    } catch {
+      // no upstream yet: publish the branch
+      await git(repoRoot, ['push', '--quiet', '-u', 'origin', branch]);
+    }
+    return { sha, branch, pushed: true };
+  } catch (err) {
+    return { sha, branch, pushed: false, pushError: (err as Error).message };
+  }
+}
+
+/**
+ * Put the working tree on the branch being reviewed so fixes land where they
+ * belong. A PR head that only exists as refs/marj/pr/N becomes a local branch.
+ */
+export async function checkoutReviewed(repoRoot: string, target: DiffTarget): Promise<string> {
+  const branch = target.reviewedBranch;
+  if (!branch) throw new GitError('this review is not of a branch');
+  if (target.pr !== undefined) {
+    try {
+      await exec('gh', ['pr', 'checkout', String(target.pr)], { cwd: repoRoot, maxBuffer: MAX_BUFFER });
+      return (await currentBranch(repoRoot)) ?? branch;
+    } catch {
+      // no gh: build the branch from the ref we fetched
+      await git(repoRoot, ['checkout', '--quiet', '-B', branch, `refs/marj/pr/${target.pr}`]);
+      return branch;
+    }
+  }
+  await git(repoRoot, ['checkout', '--quiet', branch]);
+  return branch;
 }
 
 /**

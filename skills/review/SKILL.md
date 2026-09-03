@@ -110,6 +110,20 @@ top (also `curl -s <url>/api/diff | jq -r .mode`).
   commits, so it shows once committed (or start `marj` on the working tree to fix live). Never
   keep editing trying to make it appear.
 
+**Every edit you make is an uncommitted change in the user's local repo** — no worktree, no
+copy, no commit. The browser has an **Uncommitted changes** section at the top of the diff that
+lists exactly these (HEAD → working tree, plus untracked files), badges the files changed during
+this review, and lets the user **Commit** or **Commit & push** with a message. So after a
+`[fix]`, point there: "değişiklik yukarıdaki *Uncommitted changes* bölümünde, oradan
+commit'leyebilirsin". Do **not** commit or push on your own after a fix; only when the user
+asks you to (then use your normal git flow: branch, commit, push, PR).
+
+That section also warns when the working tree is on a **different branch** than the one under
+review (e.g. reviewing PR #42 while on `develop`): a fix would land on the wrong branch. Read
+the warning before a `[fix]` — if the branch is wrong, say so and offer to switch (the section's
+"Switch to <branch>" button, or `gh pr checkout 42` / `git checkout <branch>`) rather than
+editing the wrong branch.
+
 Post the answer (heredoc keeps markdown intact):
 
 ```bash

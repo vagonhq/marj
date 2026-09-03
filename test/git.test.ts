@@ -122,3 +122,61 @@ describe('pull request references', () => {
     for (const arg of ['7', 'main', 'a1b2c3d', 'main..feature', 'origin/main']) expect(parsePullRequest(arg)).toBeNull();
   });
 });
+
+describe('the working tree and committing it', () => {
+  it('worktreeTarget lists uncommitted edits plus untracked files, independent of the review', async () => {
+    const { worktreeTarget, touchedSince } = await import('../src/server/git.js');
+    const before = new Date(Date.now() - 60_000);
+    await fs.writeFile(path.join(repo, 'feature.txt'), 'feature\nedited\n');
+    await fs.writeFile(path.join(repo, 'new.txt'), 'new\n');
+    try {
+      const diff = await computeDiff(repo, worktreeTarget(true), 3);
+      expect(diff.files.map((f) => `${f.status}:${f.path}`).sort()).toEqual(['added:new.txt', 'modified:feature.txt']);
+      // both were written just now, so both count as touched during the review
+      const touched = await touchedSince(repo, diff.files.map((f) => f.path), before);
+      expect(touched.sort()).toEqual(['feature.txt', 'new.txt']);
+      // an older mtime is not "touched"
+      const later = new Date(Date.now() + 60_000);
+      expect(await touchedSince(repo, ['feature.txt'], later)).toEqual([]);
+    } finally {
+      run('checkout', '--', 'feature.txt');
+      await fs.rm(path.join(repo, 'new.txt'), { force: true });
+    }
+  });
+
+  it('commitChanges stages everything, commits, and leaves the tree clean', async () => {
+    const { commitChanges, worktreeTarget } = await import('../src/server/git.js');
+    const headBefore = run('rev-parse', 'HEAD');
+    await fs.writeFile(path.join(repo, 'feature.txt'), 'feature\ncommitted fix\n');
+    await fs.writeFile(path.join(repo, 'extra.txt'), 'extra\n');
+
+    const result = await commitChanges(repo, { message: 'apply review fix' });
+    expect(result.sha).not.toBe(headBefore);
+    expect(result.sha).toBe(run('rev-parse', 'HEAD'));
+    expect(result.branch).toBe('feature');
+    expect(result.pushed).toBe(false);
+    expect(run('log', '-1', '--format=%s')).toBe('apply review fix');
+    // nothing left uncommitted
+    const after = await computeDiff(repo, worktreeTarget(true), 3);
+    expect(after.files).toEqual([]);
+  });
+
+  it('commitChanges refuses an empty message and an empty tree', async () => {
+    const { commitChanges } = await import('../src/server/git.js');
+    await expect(commitChanges(repo, { message: '   ' })).rejects.toThrow(/message/);
+    await expect(commitChanges(repo, { message: 'nothing here' })).rejects.toThrow(/nothing to commit/);
+  });
+
+  it('commitChanges can limit itself to given paths', async () => {
+    const { commitChanges, worktreeTarget } = await import('../src/server/git.js');
+    await fs.writeFile(path.join(repo, 'only-this.txt'), 'a\n');
+    await fs.writeFile(path.join(repo, 'not-this.txt'), 'b\n');
+    try {
+      await commitChanges(repo, { message: 'partial', paths: ['only-this.txt'] });
+      const left = await computeDiff(repo, worktreeTarget(true), 3);
+      expect(left.files.map((f) => f.path)).toEqual(['not-this.txt']);
+    } finally {
+      await fs.rm(path.join(repo, 'not-this.txt'), { force: true });
+    }
+  });
+});

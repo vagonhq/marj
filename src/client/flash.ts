@@ -16,7 +16,7 @@ export function jumpTo(id: string, block: ScrollLogicalPosition): void {
 export function lineRow(file: string, line: number): Element | null {
   const path = CSS.escape(file);
   return (
-    document.querySelector(`tr.line[data-file="${path}"][data-new="${line}"]`) ??
-    document.querySelector(`tr.line[data-file="${path}"][data-old="${line}"]`)
+    document.querySelector(`tr.line[data-scope="review"][data-file="${path}"][data-new="${line}"]`) ??
+    document.querySelector(`tr.line[data-scope="review"][data-file="${path}"][data-old="${line}"]`)
   );
 }

@@ -48,6 +48,12 @@ interface Props {
   locationIndex: LocationIndex;
   /** jump the diff to a file/line when a reply's location link is clicked */
   onNavigate?: (file: string, line: number | null) => void;
+  /** which diff this card belongs to; ids and jump targets are scoped by it */
+  scope?: 'review' | 'worktree';
+  /** no commenting: the uncommitted-changes list is for reading and committing */
+  readOnly?: boolean;
+  /** small label in the header, e.g. "changed in this review" */
+  badge?: string;
 }
 
 /**
@@ -131,7 +137,11 @@ export function FileCard(props: Props) {
     reveal,
     locationIndex,
     onNavigate,
+    scope = 'review',
+    readOnly = false,
+    badge,
   } = props;
+  const cardId = scope === 'review' ? `file-${file.path}` : `${scope}-file-${file.path}`;
 
   const language = useMemo(() => languageOf(file.path), [file.path]);
 
@@ -261,7 +271,7 @@ export function FileCard(props: Props) {
   }, [dragging]);
 
   const startSelect = (event: React.MouseEvent, side: Side, index: number) => {
-    if (event.button !== 0) return;
+    if (readOnly || event.button !== 0) return;
     event.preventDefault();
     if (event.shiftKey && span && span.side === side) {
       setSpan({ ...span, to: index });
@@ -290,7 +300,7 @@ export function FileCard(props: Props) {
     threads.filter((t) => t.status !== 'outdated' && t.side === side && t.endLine === no);
   const fileThreads = threads.filter((t) => t.status !== 'outdated' && isFileLevel(t));
 
-  const gutterButton = (side: Side, no: number, index: number) => (
+  const gutterButton = (side: Side, no: number, index: number) => readOnly ? null : (
     <button
       className="add-comment"
       title="Comment — drag down the gutter or shift-click to select more lines"
@@ -348,6 +358,7 @@ export function FileCard(props: Props) {
         <tr
           className={`line ${line.type}${selected ? ' selected' : ''}`}
           data-file={file.path}
+          data-scope={scope}
           data-old={line.oldNo ?? undefined}
           data-new={line.newNo ?? undefined}
           onMouseEnter={() => extendSelect(row.index)}
@@ -375,7 +386,7 @@ export function FileCard(props: Props) {
     const rightSelected = selected && span?.side === 'new';
     return (
       <Fragment key={`s${row.index}`}>
-        <tr className="line split" data-file={file.path} data-old={row.oldNo ?? undefined} data-new={row.newNo ?? undefined}>
+        <tr className="line split" data-file={file.path} data-scope={scope} data-old={row.oldNo ?? undefined} data-new={row.newNo ?? undefined}>
           <td
             className={`num old${leftSelected ? ' selected' : ''}`}
             onMouseDown={(e) => row.oldNo !== null && startSelect(e, 'old', row.index)}
@@ -470,7 +481,7 @@ export function FileCard(props: Props) {
   const colSpan = view === 'unified' ? 3 : 4;
 
   return (
-    <section className={`file-card${viewed ? ' is-viewed' : ''}`} id={`file-${file.path}`}>
+    <section className={`file-card${viewed ? ' is-viewed' : ''}`} id={cardId}>
       <header className="file-head">
         <button className="btn invisible icon-only chevron" onClick={onToggle} aria-label={collapsed ? 'expand' : 'collapse'}>
           {collapsed ? <ChevronRightIcon size={16} /> : <ChevronDownIcon size={16} />}
@@ -484,20 +495,23 @@ export function FileCard(props: Props) {
         </button>
         {file.status !== 'modified' && <span className={`label ${file.status}`}>{file.status}</span>}
         {file.generated && <span className="label">generated</span>}
+        {badge && <span className="label accent">{badge}</span>}
         <span className="spacer" />
         {threads.length > 0 && (
           <span className="file-comments" title={`${threads.length} comment threads`}>
             <CommentIcon size={14} /> {threads.length}
           </span>
         )}
-        <button
-          className={`btn invisible icon-only file-comment${fileDraft ? ' fg-accent' : ''}`}
-          title="Comment on the whole file"
-          aria-label={`Comment on ${file.path}`}
-          onClick={draftOnFile}
-        >
-          <CommentDiscussionIcon size={16} />
-        </button>
+        {!readOnly && (
+          <button
+            className={`btn invisible icon-only file-comment${fileDraft ? ' fg-accent' : ''}`}
+            title="Comment on the whole file"
+            aria-label={`Comment on ${file.path}`}
+            onClick={draftOnFile}
+          >
+            <CommentDiscussionIcon size={16} />
+          </button>
+        )}
         <span className="diffstat">
           <span className="add">+{file.additions}</span>
           <span className="del">−{file.deletions}</span>

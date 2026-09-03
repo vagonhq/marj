@@ -62,6 +62,8 @@ Nothing to install beyond **Node ≥ 20** — the plugin puts `marj` on your PAT
 
 🔀 **Pull requests & merge-base diffs.** A branch that hasn't been rebased shows only *its* commits, not everything that landed on `develop` since — because two revisions are compared from their merge base, exactly like a PR. Paste a PR URL and marj fetches it, asks `gh` for the base and title, and reviews it like the PR page. Reviewing the branch you're **on** (`/marj:review develop`) diffs against the working tree, so it shows the whole branch *and* any uncommitted edit — a **Comment & fix** appears live, no commit or refresh.
 
+📝 **Uncommitted changes, ready to commit.** Every fix lands in your local repo as a plain uncommitted edit — no worktree, no copy. A section at the top lists exactly what's not committed yet (HEAD → working tree, untracked included), badges the files changed during this review, folds pre-existing local edits, and lets you **Commit** or **Commit & push** with a message. If you're on a different branch than the one you're reviewing, it says so and offers to switch, so a fix never lands in the wrong place.
+
 🪟 **Panels your way.** Drag the file tree and the chat to any width, hide the file tree with `b` (chat toggles from its button), flip unified/split with `u`, mark files **Viewed** to fold them away.
 
 🔔 **You'll know when Claude replies.** A toast slides in and a chime plays; desktop notifications fire when the tab is in the background.
@@ -115,6 +117,10 @@ Bound to `127.0.0.1` only.
 | `GET /api/events` | SSE for the browser |
 | `GET /api/agent/wait?cursor=N` | long-poll: blocks until a new comment |
 | `GET /api/agent/queue` | unanswered comments, oldest first |
+| `GET /api/worktree` | uncommitted changes, current vs reviewed branch, files touched this review |
+| `POST /api/commit` | `message`, optional `paths`, `push` — commit (and push) the working tree |
+| `POST /api/checkout` | switch the working tree to the branch under review |
+| `POST /api/reload` | fetch from the remote (and a PR head) then recompute |
 
 ## Options
 

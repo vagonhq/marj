@@ -157,6 +157,22 @@ export interface ServerInfo {
   session?: string;
 }
 
+/** What is in the working tree but not in HEAD — the fixes of this review, plus anything else uncommitted. */
+export interface WorktreeState {
+  /** branch the working tree is on; null when detached or the repo has no commits */
+  branch: string | null;
+  /** branch whose code the review shows, when the review is of a branch */
+  reviewedBranch: string | null;
+  /** false when a fix made now would land on a different branch than the one being reviewed */
+  onReviewedBranch: boolean;
+  /** pull request number when reviewing a PR */
+  pr: number | null;
+  files: DiffFile[];
+  /** paths modified since the review server started — what changed during this review */
+  touched: string[];
+  version: number;
+}
+
 export type ServerEvent =
   | { type: 'diff:changed'; version: number }
   | { type: 'threads:changed'; cursor: number }
