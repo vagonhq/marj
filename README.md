@@ -48,24 +48,6 @@ Claude starts the server, opens the browser, and starts watching. Every comment 
 
 Nothing to install beyond **Node ≥ 20** — the plugin puts `marj` on your PATH and fetches the CLI from npm on first use.
 
-## Or use it standalone
-
-```bash
-npx @vagonhq/marj   # zero install
-npm install -g @vagonhq/marj # or keep it around
-```
-
-```bash
-marj                                        # working tree vs HEAD (+ untracked)
-marj .                                       # unstaged only
-marj --staged                                # staged only
-marj a1b2c3d                                 # a single commit
-marj develop                                 # current branch as a PR into develop
-marj develop..feature                        # feature as a PR into develop
-marj https://github.com/you/repo/pull/42     # a GitHub pull request
-git diff | marj -                            # a diff from stdin
-```
-
 ## What you get
 
 🗨️ **A real conversation, in the diff.** Hover a line and hit `+`, or drag down the gutter to select a range — exactly like GitHub. Send it as **Comment** (`⌘↵`, Claude answers and leaves the code alone) or **Comment & fix** (`⌘⇧↵`, Claude makes the change, then tells you what it did). The choice travels with the message, so nothing is left to guesswork.
@@ -86,9 +68,9 @@ git diff | marj -                            # a diff from stdin
 
 🎨 **Painted with GitHub's own design system.** Colours from [`@primer/primitives`](https://github.com/primer/primitives), [Octicons](https://primer.style/octicons), and [Shiki](https://shiki.style) syntax highlighting with GitHub's themes across ~200 languages, light and dark.
 
-## The agent side
+## How it works
 
-Under the hood `/marj:review` just drives the agent-facing half of the CLI — any agent that can run a shell command works, there's nothing Claude-specific in the protocol:
+`/marj:review` is the way to use marj: Claude starts the server, watches for your comments, and answers them. Under the hood it drives these CLI commands for you — you don't run them yourself:
 
 ```bash
 marj watch                  # one line per new comment, blocks in between (long-poll)
