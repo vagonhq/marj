@@ -1,0 +1,12 @@
+/* TEAM */
+  Creator: Sezer İstif
+  Site: https://github.com/sezeristif
+
+/* SITE */
+  Project: marj — review local git changes in your browser, with Claude Code in the thread
+  Standards: HTML5, CSS3, TypeScript, React
+  Components: Node.js, Express, Vite, Shiki, Primer
+  Software: Claude Code
+
+/* THANKS */
+  Built at Vagon — https://github.com/vagonhq

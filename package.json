@@ -14,13 +14,13 @@
   ],
   "license": "MIT",
   "author": "Sezer İstif (https://github.com/sezeristif)",
-  "homepage": "https://github.com/sezeristif/marj#readme",
+  "homepage": "https://github.com/vagonhq/marj#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sezeristif/marj.git"
+    "url": "git+https://github.com/vagonhq/marj.git"
   },
   "bugs": {
-    "url": "https://github.com/sezeristif/marj/issues"
+    "url": "https://github.com/vagonhq/marj/issues"
   },
   "type": "module",
   "bin": {

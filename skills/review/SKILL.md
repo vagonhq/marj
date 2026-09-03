@@ -1,6 +1,6 @@
 ---
 description: "Open a GitHub-style review UI for local git changes and stay in the loop: the user comments on a line in the browser, you answer in that thread and fix the code. Use when the user says /marj:review or /marj, asks to review local changes together, or wants to talk about a diff line by line."
-argument-hint: "[revision | a..b | --staged]"
+argument-hint: "[revision | a..b | PR url | --staged]"
 ---
 
 # marj
@@ -31,7 +31,12 @@ open <url>            # macOS; xdg-open elsewhere
 ```
 
 Targets: `marj` (working tree vs HEAD, the default), `marj --staged`, `marj <commit>`,
-`marj main..feature`, `marj <a> <b>`. Pass the user's intent through; ask only if truly unclear.
+`marj develop` (the current branch as a PR into develop), `marj develop..feature`, `marj <a> <b>`,
+and a GitHub pull request: `marj https://github.com/o/r/pull/12`, `marj o/r#12`, `marj #12`
+(fetches the PR head and diffs it from the merge base, like the PR page).
+Two revisions are compared from their merge base like a GitHub PR, so an unrebased branch shows
+only its own commits; `--exact` compares the tips. Pass the user's intent through; ask only if
+truly unclear.
 
 ## 2. Arm the watch — do this immediately after starting
 
@@ -49,7 +54,20 @@ Each notification looks like:
 ```
 COMMENT t3 src/api/users.ts:42-45 [ask] — bu null check yeterli mi?
 REPLY   t4 src/api/users.ts:51    [fix] — burada guard ekle
+COMMENT t5 src/api/users.ts (whole file) [ask] — bu dosya ikiye bölünmeli mi?
 ```
+
+`(whole file)` means the comment is about the file, not a line: read the whole file (or its
+diff via `marj show`) before answering.
+
+A third kind comes from the **review chat** panel on the right of the UI, which is about the
+change as a whole and has no file:
+
+```
+CHAT chat [ask] — Explain what these changes do as a whole: the goal, then file by file …
+```
+
+Answer it with `marj reply chat`. See section 3a.
 
 **The tag in brackets is the user's explicit choice, not a hint. Obey it.**
 
@@ -97,7 +115,47 @@ You can also raise your own findings — they show up as normal threads:
 
 ```bash
 marj comment src/api/users.ts 42 "Bu kod yolu 401 yerine 500 dönüyor" --side new
+marj comment src/api/users.ts "Bu dosya hem HTTP hem DB işi yapıyor, ikiye bölünmeli"   # whole file
 ```
+
+## 3a. The review chat and "Explain these changes"
+
+The chat panel has an **Explain these changes** button that sends the English request above.
+Answer in the language the user has been using with you, not necessarily English. Keep the
+usual `[ask]` / `[fix]` discipline: the chat can carry `[fix]` too ("rename this everywhere").
+
+To write the explanation, read the diff itself (the same target marj is showing):
+
+```bash
+git diff                                   # or: curl -s http://127.0.0.1:<port>/api/diff | jq
+```
+
+Structure the answer so it is useful next to the diff:
+
+1. One or two sentences: what the change is for.
+2. Then **file by file**, in the order they matter (new files, then core changes, then
+   tests/docs). For each file say what was added or changed and *why*, and point at the code.
+3. Risks, open questions, or things worth a closer look, if any.
+
+**Every code reference must be `path:line` or `path:start-end` using the exact path as it
+appears in the diff and line numbers from the new side of the file** — the UI turns these into
+links that jump to that line and highlight the file in the sidebar. Bare paths (`src/a.ts`)
+link to the file header. Wrap them in backticks; that still links. Made-up or approximate
+paths do not link, so copy them from the diff.
+
+```bash
+marj reply chat --typing
+marj reply chat <<'EOF'
+Bu değişiklik marj'a dosya seviyesinde yorum ve bir review chat paneli ekliyor.
+
+**`src/shared/types.ts:66-79`** — `FILE_LEVEL` ve `isFileLevel`: satırı olmayan thread'ler 0 ile işaretleniyor.
+**`src/server/anchor.ts:141`** — dosya seviyesindeki thread'ler reanchor'da yerinde kalıyor.
+…
+EOF
+```
+
+`marj show chat` prints the whole conversation. Follow-up questions arrive as further `CHAT`
+lines; answer each once, in the same thread.
 
 ## 4. House rules
 
@@ -123,8 +181,19 @@ through `.marj/server.json` under the repo root:
 cd /path/to/repo-a && marj show t3
 ```
 
-Starting a second `marj` in a repo that already has one is refused; it prints the running URL
-instead. Use `marj --force` only if you really want two.
+Starting a second `marj` in a repo that already has one reuses it and prints the running URL.
+For a genuinely separate review in the same repo (a second branch, a PR, a fresh chat), start an
+**isolated session** — its own threads, chat and port, nothing shared, and it never stops the
+default one:
+
+```bash
+marj --session pr-42 --json --no-open <target>   # start it
+marj watch --session pr-42                        # every follow-up command takes --session
+marj show t1 --session pr-42
+marj stop --session pr-42
+```
+
+Give the Monitor a description naming the session so its notifications are distinguishable.
 
 ## 6. Finish
 

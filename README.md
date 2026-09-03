@@ -1,84 +1,94 @@
+<div align="center">
+
 # marj
 
-Review your local git changes in a GitHub-style web UI — and have the conversation with the
-Claude Code session you started it from. Comment on a line, Claude answers **in that thread**,
-fixes the code if you asked it to, and the diff updates under you.
+### Review your local git changes in a GitHub-style UI — and talk to the Claude Code session that opened it, right in the diff.
+
+Comment on a line. Claude answers **in that thread**, fixes the code if you asked, and the diff updates under you. No cloud, no second agent, no desktop app — one CLI, one local port.
+
+[![npm](https://img.shields.io/npm/v/marj?color=2088ff&label=npm)](https://www.npmjs.com/package/marj)
+[![CI](https://github.com/vagonhq/marj/actions/workflows/ci.yml/badge.svg)](https://github.com/vagonhq/marj/actions/workflows/ci.yml)
+[![license](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
+[![node](https://img.shields.io/badge/node-%E2%89%A520-3c873a)](https://nodejs.org)
 
 ```
 ┌──────────────────────┐   comment    ┌───────────────┐   COMMENT t3 …   ┌──────────────┐
-│  browser (localhost) │ ───────────► │  marj server  │ ───────────────► │ your Claude  │
-│  GitHub-style diff   │ ◄─────────── │  .marj/*.json │ ◄─────────────── │ Code session │
-└──────────────────────┘  SSE: reply  └───────────────┘   marj reply     └──────────────┘
+│  browser (localhost) │ ───────────► │  marj server  │ ───────────────► │  your Claude │
+│  GitHub-style diff   │ ◄─────────── │  .marj/*.json │ ◄─────────────── │  Code session│
+└──────────────────────┘  reply (SSE) └───────────────┘   marj reply     └──────────────┘
 ```
 
-No cloud, no separate agent, no macOS app. One CLI, one local port, MIT.
+</div>
 
-## Why
+---
 
-`difit` shows the diff but comments only travel one way — you copy a prompt into your agent.
-Diffsmith does the round trip but is closed source and paid. marj is the round trip, open.
+## Quickstart with Claude Code
 
-## Install
-
-As a Claude Code plugin (see below), or as a plain CLI:
-
-```bash
-npm install -g marj      # or: npx marj
-```
-
-## Use it yourself
-
-```bash
-marj                     # working tree vs HEAD, plus untracked files
-marj .                   # unstaged only
-marj --staged            # staged only
-marj a1b2c3d             # a single commit
-marj main..feature       # a range
-marj main feature        # two revisions
-git diff | marj -        # a diff from stdin
-```
-
-The browser opens on `http://127.0.0.1:4711`. Hover a line and hit `+` to comment on it — or
-**drag down the gutter** (or shift-click a second line) to select a range, exactly like on
-GitHub. Then send it one of two ways:
-
-- **Comment** (`⌘↵`) — Claude answers in the thread and **does not touch the code**.
-- **Comment & fix** (`⌘⇧↵`) — Claude makes the change, then says what it changed.
-
-Each file header carries a **Viewed** checkbox that folds the file away and counts towards the
-`3/12 reviewed` tally in the top bar; it clears itself if that file changes again. When Claude
-answers, a toast slides in at the top right and a chime plays — click 🔔 once to arm it (that
-also grants desktop notifications, which fire when the tab is in the background). 🔕 turns it
-all off.
-
-The choice travels with the message (`[ask]` / `[fix]` in the agent's inbox), so nothing is
-left to the agent's guesswork. `u` toggles unified/split. The diff live-refreshes as
-files change, and threads follow the code they were written against — including when the line
-itself gets rewritten. Threads live in `.marj/threads.json` inside the repo, so closing the
-server does not lose the conversation.
-
-## Use it with Claude Code
-
-marj is a Claude Code plugin. Inside Claude Code:
+Inside Claude Code, add the plugin once:
 
 ```
-/plugin marketplace add sezeristif/marj
+/plugin marketplace add vagonhq/marj
 /plugin install marj@marj
 ```
 
-That adds the `/marj:review` skill and puts the `marj` command on PATH (a wrapper that uses a
-global install when there is one and `npx -y marj` otherwise — nothing else to install beyond
-Node ≥ 20).
+Then in any repo, just say:
 
-Then, in any repo, say `/marj:review` (or `/marj:review main..feature`). Claude starts the
-server, opens the browser and arms a watch. From then on every comment you write in the browser
-lands in that session, in order, and its answer appears under the line. "Comment & fix" makes
-it edit the file — the diff refreshes on its own.
+```
+/marj:review
+```
 
-Prefer not to use the plugin? `npm i -g marj` and copy `skills/review/SKILL.md` to
-`~/.claude/skills/marj/SKILL.md`; the skill is then `/marj`.
+Claude starts the server, opens the browser, and starts watching. Every comment you leave lands in that session **in order**, and its answer appears under the line. Point it at anything git can name:
 
-Under the hood the session just runs the agent-facing half of the CLI:
+```
+/marj:review                                       working tree vs HEAD
+/marj:review --staged                              staged changes
+/marj:review develop..feature                      a branch, PR-style
+/marj:review https://github.com/you/repo/pull/42   a pull request
+```
+
+Nothing to install beyond **Node ≥ 20** — the plugin puts `marj` on your PATH and fetches the CLI from npm on first use.
+
+## Or use it standalone
+
+```bash
+npx marj            # zero install
+npm install -g marj # or keep it around
+```
+
+```bash
+marj                                        # working tree vs HEAD (+ untracked)
+marj .                                       # unstaged only
+marj --staged                                # staged only
+marj a1b2c3d                                 # a single commit
+marj develop                                 # current branch as a PR into develop
+marj develop..feature                        # feature as a PR into develop
+marj https://github.com/you/repo/pull/42     # a GitHub pull request
+git diff | marj -                            # a diff from stdin
+```
+
+## What you get
+
+🗨️ **A real conversation, in the diff.** Hover a line and hit `+`, or drag down the gutter to select a range — exactly like GitHub. Send it as **Comment** (`⌘↵`, Claude answers and leaves the code alone) or **Comment & fix** (`⌘⇧↵`, Claude makes the change, then tells you what it did). The choice travels with the message, so nothing is left to guesswork.
+
+🧵 **Threads that follow the code.** The diff live-refreshes as files change, and every thread re-anchors to the line it was written against — even after Claude rewrites that line. Threads live in `.marj/threads.json`, so closing the server never loses the conversation.
+
+📄 **Comment on a whole file,** not just a line — for "split this up" or "why does this exist?". The thread sits above the diff and stays put no matter how the lines move.
+
+💬 **Review chat with "Explain these changes."** A panel on the right that walks the whole change file by file — and every `path:line` it mentions becomes a link that jumps the diff there and highlights the file in the sidebar.
+
+↕️ **Expandable context,** like GitHub. Open the lines between hunks a click or twenty at a time, all the way to the end of the file — and comment on them too.
+
+🔀 **Pull requests & merge-base diffs.** A branch that hasn't been rebased shows only *its* commits, not everything that landed on `develop` since — because two revisions are compared from their merge base, exactly like a PR. Paste a PR URL and marj fetches it, asks `gh` for the base and title, and reviews it like the PR page.
+
+🪟 **Panels your way.** Drag the file tree and the chat to any width, hide either with `b` / `c`, flip unified/split with `u`, mark files **Viewed** to fold them away.
+
+🔔 **You'll know when Claude replies.** A toast slides in and a chime plays; desktop notifications fire when the tab is in the background.
+
+🎨 **Painted with GitHub's own design system.** Colours from [`@primer/primitives`](https://github.com/primer/primitives), [Octicons](https://primer.style/octicons), and [Shiki](https://shiki.style) syntax highlighting with GitHub's themes across ~200 languages, light and dark.
+
+## The agent side
+
+Under the hood `/marj:review` just drives the agent-facing half of the CLI — any agent that can run a shell command works, there's nothing Claude-specific in the protocol:
 
 ```bash
 marj watch                  # one line per new comment, blocks in between (long-poll)
@@ -87,66 +97,64 @@ marj show t3                # the thread plus the code around it
 marj reply t3 --typing      # "Claude is typing…" in the UI
 marj reply t3 --stdin       # post the answer, markdown welcome
 marj resolve t3
-marj delete t3
 marj comment src/a.ts 42 "this returns 500" --side new
+marj comment src/a.ts "this module does two unrelated things"   # whole file
+marj reply chat --stdin     # answer the "Explain these changes" panel
 ```
 
-Any agent that can run a shell command works — there is nothing Claude-specific in the
-protocol.
+## Several reviews at once
 
-## Several repos at once
+Every repo runs its own server (the port walks up from 4711, state lives in that repo's `.marj/`). Running `marj` twice in the same repo reuses the running one instead of duplicating it.
 
-Every repo runs its own server: the port walks up from 4711, state lives in that repo's
-`.marj/`, and the tab is titled after the repo. Running `marj` twice in the *same* repo is
-refused (it prints the URL that is already serving) — `--force` overrides.
+To review two things side by side — a second branch, a PR, a clean slate — start an **isolated session** with its own threads, chat and port. It shares nothing, and starting one never stops the others:
+
+```bash
+marj --session pr-42 https://github.com/you/repo/pull/42
+marj watch --session pr-42        # follow-up commands take the same flag
+marj stop  --session pr-42
+```
+
+`marj --force` does the same without naming it (auto `s2`, `s3`, …).
 
 ## HTTP API
+
+Bound to `127.0.0.1` only.
 
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /api/diff` | parsed diff |
+| `GET /api/file?path=&side=` | one side of a file in full, for expanding context |
 | `GET /api/threads` · `POST /api/threads` | list / create |
-| `POST /api/threads/:id/messages` | reply (`role: user` or `agent`, `intent: ask` or `fix`) |
+| `POST /api/threads/:id/messages` | reply (`role: user \| agent`, `intent: ask \| fix`) |
 | `PATCH /api/threads/:id` | `status`, `agentTyping` |
 | `DELETE /api/threads/:id` | delete a thread |
 | `GET /api/events` | SSE for the browser |
 | `GET /api/agent/wait?cursor=N` | long-poll: blocks until a new comment |
 | `GET /api/agent/queue` | unanswered comments, oldest first |
 
-Bound to `127.0.0.1` only.
-
 ## Options
 
 ```
---port <n>      preferred port (default 4711, walks up if taken)
---host <h>      bind address (default 127.0.0.1)
---context <n>   diff context lines (default 5)
---no-open       do not open a browser
---no-watch      do not refresh when files change
---json          machine readable output
+--exact          compare two revisions tip to tip instead of from their merge base
+--session <name> an isolated review with its own .marj/sessions/<name>/ state
+--port <n>       preferred port (default 4711, walks up if taken)
+--host <h>       bind address (default 127.0.0.1)
+--context <n>    diff context lines (default 5)
+--no-open        do not open a browser
+--no-watch       do not refresh when files change
+--json           machine readable output
 ```
-
-## Look and feel
-
-The UI is built on GitHub's own design system: colours, radii and shadows are
-[`@primer/primitives`](https://github.com/primer/primitives) tokens (the ones github.com is
-painted with, light and dark), icons are [Octicons](https://primer.style/octicons), and syntax
-highlighting is [Shiki](https://shiki.style) with the `github-light-default` /
-`github-dark-default` themes — the same TextMate grammars VS Code uses, so Ruby, ERB, TSX, Vue,
-Terraform and ~200 other languages colour correctly, and each hunk is highlighted as one block so
-multi-line strings and comments keep their state. Grammars load lazily, only for languages that
-appear in the diff.
 
 ## Develop
 
 ```bash
 npm install
 npm run build          # dist/server + dist/client
-npm test               # vitest: diff parser, anchoring, thread store
+npm test               # vitest: diff parser, anchoring, thread store, targets, expand
 npm run dev:server     # tsc --watch
 npm run dev:client     # vite on :5173, proxies /api to :4711
 ```
 
 ## License
 
-MIT
+[MIT](./LICENSE) — built at [Vagon](https://github.com/vagonhq) by [Sezer İstif](https://github.com/sezeristif).
