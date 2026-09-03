@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shipped with the Claude Code plugin so `marj` is on PATH while the plugin is
-# enabled. Prefers a real install next to node (npm i -g marj), otherwise runs
+# enabled. Prefers a real install next to node (npm i -g @vagonhq/marj), otherwise runs
 # the published package through npx — nothing to install by hand.
 set -euo pipefail
 
@@ -15,4 +15,4 @@ if [ -x "$installed" ] && [ "$installed" != "${BASH_SOURCE[0]}" ]; then
   exec "$installed" "$@"
 fi
 
-exec npx -y marj@latest "$@"
+exec npx -y @vagonhq/marj@latest "$@"

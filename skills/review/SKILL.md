@@ -12,7 +12,7 @@ same thread, and your answer appears under that line in the browser.
 ## 0. The `marj` command
 
 The plugin puts `marj` on PATH (a wrapper that uses a global install if there is one, else
-`npx -y marj`). If `marj` is somehow missing, `npx -y marj` is the same thing. If that fails
+`npx -y @vagonhq/marj`). If `marj` is somehow missing, `npx -y @vagonhq/marj` is the same thing. If that fails
 too there is no Node ≥ 20 — tell the user.
 
 The user may pass a target after the command (`/marj:review main..feature`); use it as the

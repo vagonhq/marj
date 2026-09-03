@@ -6,7 +6,7 @@
 
 Comment on a line. Claude answers **in that thread**, fixes the code if you asked, and the diff updates under you. No cloud, no second agent, no desktop app — one CLI, one local port.
 
-[![npm](https://img.shields.io/npm/v/marj?color=2088ff&label=npm)](https://www.npmjs.com/package/marj)
+[![npm](https://img.shields.io/npm/v/%40vagonhq%2Fmarj?color=2088ff&label=npm)](https://www.npmjs.com/package/@vagonhq/marj)
 [![CI](https://github.com/vagonhq/marj/actions/workflows/ci.yml/badge.svg)](https://github.com/vagonhq/marj/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A520-3c873a)](https://nodejs.org)
@@ -51,8 +51,8 @@ Nothing to install beyond **Node ≥ 20** — the plugin puts `marj` on your PAT
 ## Or use it standalone
 
 ```bash
-npx marj            # zero install
-npm install -g marj # or keep it around
+npx @vagonhq/marj   # zero install
+npm install -g @vagonhq/marj # or keep it around
 ```
 
 ```bash
