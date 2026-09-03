@@ -48,6 +48,24 @@ Claude starts the server, opens the browser, and starts watching. Every comment 
 
 Nothing to install beyond **Node ≥ 20** — the plugin puts `marj` on your PATH and fetches the CLI from npm on first use.
 
+The plugin adds four commands:
+
+| Command | What it does |
+| --- | --- |
+| `/marj:review [target]` | start (or reuse) the review server, open the browser, watch for your comments |
+| `/marj:commit` | Claude writes a commit message from the diff, commits the review's fixes and pushes |
+| `/marj:reload` | fetch from the remote (re-pull a PR head) and refresh the diff, keeping every thread |
+| `/marj:reset` | stop every marj server for the repo, wipe all threads and chat, start clean |
+
+### The fix loop
+
+1. You comment on a line and press **Comment & fix**.
+2. Claude edits the file. That edit is a plain **uncommitted change in your local repo** — no worktree, no copy. Reviewing the branch you're on, it shows in the diff within a second.
+3. The **Uncommitted changes** section at the top lists it (badged *changed in this review*), next to any older local edits (folded).
+4. Commit from there — type a message and **Commit** / **Commit & push** — or press **Ask Claude to commit & push** (same as `/marj:commit`) and let Claude write the message.
+
+marj never commits or pushes on its own; only when you click or ask.
+
 ## What you get
 
 🗨️ **A real conversation, in the diff.** Hover a line and hit `+`, or drag down the gutter to select a range — exactly like GitHub. Send it as **Comment** (`⌘↵`, Claude answers and leaves the code alone) or **Comment & fix** (`⌘⇧↵`, Claude makes the change, then tells you what it did). The choice travels with the message, so nothing is left to guesswork.
@@ -56,7 +74,7 @@ Nothing to install beyond **Node ≥ 20** — the plugin puts `marj` on your PAT
 
 📄 **Comment on a whole file,** not just a line — for "split this up" or "why does this exist?". The thread sits above the diff and stays put no matter how the lines move.
 
-💬 **Review chat with "Explain these changes."** A panel on the right that walks the whole change file by file — and every `path:line` it mentions becomes a link that jumps the diff there and highlights the file in the sidebar.
+💬 **Review chat with "Explain these changes."** A panel on the right that walks the whole change file by file — and every `path:line` it mentions (in the chat *and* in thread replies) becomes a link that jumps the diff there and highlights the file in the sidebar. Enter sends, Shift+Enter is a newline.
 
 ↕️ **Expandable context,** like GitHub. Open the lines between hunks a click or twenty at a time, all the way to the end of the file — and comment on them too.
 
@@ -79,11 +97,11 @@ marj watch                  # one line per new comment, blocks in between (long-
 marj threads --pending      # what still owes an answer
 marj show t3                # the thread plus the code around it
 marj reply t3 --typing      # "Claude is typing…" in the UI
-marj reply t3 --stdin       # post the answer, markdown welcome
+marj reply t3 <<'EOF'       # post the answer (stdin when no text given), markdown welcome
 marj resolve t3
 marj comment src/a.ts 42 "this returns 500" --side new
 marj comment src/a.ts "this module does two unrelated things"   # whole file
-marj reply chat --stdin     # answer the "Explain these changes" panel
+marj reply chat <<'EOF'   # answer the "Explain these changes" panel
 marj commit --push -m "…"   # /marj:commit — commit (and push) the uncommitted changes
 marj reload                 # /marj:reload — fetch from the remote and refresh the diff
 marj reset                  # /marj:reset  — stop every server and wipe .marj (start over)
@@ -134,6 +152,14 @@ Bound to `127.0.0.1` only.
 --no-open        do not open a browser
 --no-watch       do not refresh when files change
 --json           machine readable output
+
+Per command:
+--push           (commit) push after committing; publishes the branch if it has no upstream
+--pending        (threads) only threads still waiting on an answer
+--resolve        (reply) mark the thread resolved afterwards
+--typing         (reply) only flip the "Claude is typing" indicator
+--cursor <n>     (watch) resume from a sequence number
+--no-catch-up    (watch) skip comments that arrived before the watch started
 ```
 
 ## Develop

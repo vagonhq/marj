@@ -130,7 +130,7 @@ editing the wrong branch.
 Post the answer (heredoc keeps markdown intact):
 
 ```bash
-marj reply t3 --stdin <<'EOF'
+marj reply t3 <<'EOF'
 Haklısın, `user` null olabiliyor. `getUser()` çağrısından sonra guard ekledim ve
 testi de güncelledim.
 EOF
