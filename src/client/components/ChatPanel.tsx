@@ -2,9 +2,9 @@ import { SparkleFillIcon, TrashIcon, XIcon } from '@primer/octicons-react';
 import { useEffect, useMemo, useRef } from 'react';
 import { CHAT_THREAD, EXPLAIN_PROMPT, type DiffFile, type Intent, type Thread } from '../../shared/types';
 import { api } from '../api.js';
-import { buildLocationIndex, linkifyLocations } from '../locations.js';
-import { renderMarkdown } from '../markdown.js';
+import { buildLocationIndex } from '../locations.js';
 import { Composer } from './Composer.js';
+import { MarkdownBody } from './MarkdownBody.js';
 import { Avatar } from './ThreadCard.js';
 
 interface Props {
@@ -17,29 +17,9 @@ interface Props {
   onNavigate: (file: string, line: number | null) => void;
 }
 
-function Body({ html, onNavigate, files }: { html: string; files: DiffFile[]; onNavigate: Props['onNavigate'] }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const index = useMemo(() => buildLocationIndex(files.map((f) => f.path)), [files]);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.innerHTML = html;
-    linkifyLocations(el, index);
-  }, [html, index]);
-
-  const onClick = (event: React.MouseEvent) => {
-    const anchor = (event.target as HTMLElement).closest('a.loc') as HTMLAnchorElement | null;
-    if (!anchor) return;
-    event.preventDefault();
-    onNavigate(anchor.dataset.file!, anchor.dataset.line ? Number(anchor.dataset.line) : null);
-  };
-
-  return <div ref={ref} className="comment-body markdown" onClick={onClick} />;
-}
-
 export function ChatPanel({ chat, files, author, onClose, onChanged, onNavigate }: Props) {
   const messages = chat?.messages ?? [];
+  const index = useMemo(() => buildLocationIndex(files.map((f) => f.path)), [files]);
   const waiting = messages.at(-1)?.role === 'user';
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -94,7 +74,7 @@ export function ChatPanel({ chat, files, author, onClose, onChanged, onNavigate 
                   </span>
                 )}
               </div>
-              <Body html={renderMarkdown(message.body)} files={files} onNavigate={onNavigate} />
+              <MarkdownBody body={message.body} index={index} onNavigate={onNavigate} />
             </div>
           </div>
         ))}

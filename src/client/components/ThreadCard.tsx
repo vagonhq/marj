@@ -1,15 +1,20 @@
 import { CheckIcon, SparkleFillIcon, TrashIcon } from '@primer/octicons-react';
 import { useState } from 'react';
 import type { Intent, Message, Thread } from '../../shared/types';
+import type { LocationIndex } from '../locations.js';
 import { api } from '../api.js';
-import { renderMarkdown } from '../markdown.js';
 import { Composer } from './Composer.js';
+import { MarkdownBody } from './MarkdownBody.js';
 
 interface Props {
   thread: Thread;
   /** git user.name of the reviewer, for the avatar and the "x commented" line */
   author: string;
   onChanged: () => void;
+  /** file paths of the diff, for linking `path:line` mentions in replies */
+  index: LocationIndex;
+  /** jump the diff to a file/line when a location link is clicked */
+  onNavigate?: (file: string, line: number | null) => void;
 }
 
 function timeAgo(iso: string): string {
@@ -35,7 +40,7 @@ export function Avatar({ role, author, small }: { role: Message['role']; author:
   );
 }
 
-export function ThreadCard({ thread, author, onChanged }: Props) {
+export function ThreadCard({ thread, author, onChanged, index, onNavigate }: Props) {
   const [replying, setReplying] = useState(false);
   const waiting = thread.status !== 'resolved' && thread.messages.at(-1)?.role === 'user';
   const resolved = thread.status === 'resolved';
@@ -72,7 +77,7 @@ export function ThreadCard({ thread, author, onChanged }: Props) {
                 </span>
               )}
             </div>
-            <div className="comment-body markdown" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.body) }} />
+            <MarkdownBody body={message.body} index={index} onNavigate={onNavigate} />
           </div>
         </div>
       ))}

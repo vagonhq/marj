@@ -20,6 +20,7 @@ import { Toasts, type Toast } from './components/Toasts.js';
 import type { DraftTarget } from './components/types.js';
 import { jumpTo } from './flash.js';
 import { askForNotifications, chime, desktopNotify } from './notify.js';
+import { buildLocationIndex } from './locations.js';
 import { buildTree, flattenTree } from './tree.js';
 
 type ViewMode = 'unified' | 'split';
@@ -360,6 +361,7 @@ export function App() {
 
   // the cards follow the sidebar's order (folders first, alphabetical), not raw path order
   const files = useMemo(() => flattenTree(buildTree(diff?.files ?? [])), [diff]);
+  const locationIndex = useMemo(() => buildLocationIndex(files.map((f) => f.path)), [files]);
   const totals = files.reduce((acc, f) => ({ add: acc.add + f.additions, del: acc.del + f.deletions }), { add: 0, del: 0 });
   const progress = files.length ? Math.round((viewed.size / files.length) * 100) : 0;
 
@@ -472,6 +474,8 @@ export function App() {
               onSubmitDraft={submitDraft}
               onThreadsChanged={loadThreads}
               reveal={reveal && reveal.file === file.path ? reveal : null}
+              locationIndex={locationIndex}
+              onNavigate={navigate}
             />
           ))}
         </main>

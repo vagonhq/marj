@@ -13,6 +13,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { addRange, expandFile, gapsOf, STEP, type Gap, type Range } from '../expand.js';
 import { flashElement, lineRow } from '../flash.js';
+import type { LocationIndex } from '../locations.js';
 import {
   FILE_LEVEL,
   isFileLevel,
@@ -43,6 +44,10 @@ interface Props {
   onThreadsChanged: () => void;
   /** a line a chat link wants shown: expand around it if needed, then flash it */
   reveal?: { line: number; nonce: number } | null;
+  /** file paths of the diff, for linking `path:line` mentions in replies */
+  locationIndex: LocationIndex;
+  /** jump the diff to a file/line when a reply's location link is clicked */
+  onNavigate?: (file: string, line: number | null) => void;
 }
 
 /**
@@ -124,6 +129,8 @@ export function FileCard(props: Props) {
     onSubmitDraft,
     onThreadsChanged,
     reveal,
+    locationIndex,
+    onNavigate,
   } = props;
 
   const language = useMemo(() => languageOf(file.path), [file.path]);
@@ -309,7 +316,7 @@ export function FileCard(props: Props) {
       <tr className="overlay-row">
         <td colSpan={colSpan}>
           {items.map((thread) => (
-            <ThreadCard key={thread.id} thread={thread} author={author} onChanged={onThreadsChanged} />
+            <ThreadCard key={thread.id} thread={thread} author={author} onChanged={onThreadsChanged} index={locationIndex} onNavigate={onNavigate} />
           ))}
           {showDraft && <Composer header={header} autoFocus onCancel={() => onDraft(null)} onSubmit={onSubmitDraft} />}
         </td>
@@ -506,7 +513,7 @@ export function FileCard(props: Props) {
           {(fileThreads.length > 0 || fileDraft) && (
             <div className="file-threads">
               {fileThreads.map((thread) => (
-                <ThreadCard key={thread.id} thread={thread} author={author} onChanged={onThreadsChanged} />
+                <ThreadCard key={thread.id} thread={thread} author={author} onChanged={onThreadsChanged} index={locationIndex} onNavigate={onNavigate} />
               ))}
               {fileDraft && (
                 <Composer
@@ -523,7 +530,7 @@ export function FileCard(props: Props) {
             <div className="outdated-block">
               <div className="outdated-title">Outdated — the code these refer to has changed</div>
               {outdated.map((thread) => (
-                <ThreadCard key={thread.id} thread={thread} author={author} onChanged={onThreadsChanged} />
+                <ThreadCard key={thread.id} thread={thread} author={author} onChanged={onThreadsChanged} index={locationIndex} onNavigate={onNavigate} />
               ))}
             </div>
           )}
