@@ -22,6 +22,9 @@ const run = (...args: string[]) =>
 beforeAll(async () => {
   repo = await fs.mkdtemp(path.join(os.tmpdir(), 'marj-git-'));
   run('init', '-q', '-b', 'main');
+  // commitChanges runs plain `git commit`; CI runners have no global identity
+  run('config', 'user.name', 't');
+  run('config', 'user.email', 't@t');
   await fs.writeFile(path.join(repo, 'base.txt'), 'base\n');
   run('add', '.');
   run('commit', '-q', '-m', 'A');
