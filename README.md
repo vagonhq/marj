@@ -2,7 +2,9 @@
 
 # marj
 
-### Review your local git changes in a GitHub-style UI — and talk to the Claude Code session that opened it, right in the diff.
+### Make Claude's memory an expansion of your memory.
+
+Review your local git changes in a GitHub-style UI — and talk to the Claude Code session that opened it, right in the diff.
 
 Comment on a line. Claude answers **in that thread**, fixes the code if you asked, and the diff updates under you. No cloud, no second agent, no desktop app — one CLI, one local port.
 
