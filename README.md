@@ -177,3 +177,7 @@ npm run dev:client     # vite on :5173, proxies /api to :4711
 ## License
 
 [MIT](./LICENSE) — built at [Vagon](https://github.com/vagonhq) by [Sezer İstif](https://github.com/sezeristif).
+
+---
+
+<p align="center">Crafted with :heart: by humans, assisted with LLMs</p>
