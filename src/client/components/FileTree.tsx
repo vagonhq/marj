@@ -17,6 +17,8 @@ interface Props {
   files: DiffFile[];
   threadsByFile: Map<string, Thread[]>;
   viewed: Map<string, string>;
+  /** the file a chat link last jumped to */
+  active?: string | null;
   onSelect: (path: string) => void;
 }
 
@@ -34,7 +36,7 @@ function StatusIcon({ file, viewed }: { file: DiffFile; viewed: boolean }) {
   }
 }
 
-export function FileTree({ files, threadsByFile, viewed, onSelect }: Props) {
+export function FileTree({ files, threadsByFile, viewed, active, onSelect }: Props) {
   const [filter, setFilter] = useState('');
   const [folded, setFolded] = useState<Set<string>>(new Set());
 
@@ -75,7 +77,8 @@ export function FileTree({ files, threadsByFile, viewed, onSelect }: Props) {
     return (
       <li key={`f:${node.file.path}`}>
         <button
-          className={`tree-row file${isViewed ? ' viewed' : ''}`}
+          id={`tree-${node.file.path}`}
+          className={`tree-row file${isViewed ? ' viewed' : ''}${active === node.file.path ? ' active' : ''}`}
           style={indent}
           onClick={() => onSelect(node.file.path)}
           title={node.file.path}

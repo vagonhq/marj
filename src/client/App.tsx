@@ -1,24 +1,26 @@
-import { BellIcon, BellSlashIcon, ColumnsIcon, GitCompareIcon, MoonIcon, RowsIcon, SunIcon } from '@primer/octicons-react';
+import {
+  BellIcon,
+  BellSlashIcon,
+  ColumnsIcon,
+  CommentDiscussionIcon,
+  GitCompareIcon,
+  MoonIcon,
+  RowsIcon,
+  SidebarCollapseIcon,
+  SidebarExpandIcon,
+  SunIcon,
+} from '@primer/octicons-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { DiffFile, DiffPayload, Intent, Thread } from '../shared/types';
+import { describeTarget, isChat, type DiffFile, type DiffPayload, type Intent, type Thread } from '../shared/types';
 import { api, subscribe } from './api.js';
+import { ChatPanel } from './components/ChatPanel.js';
 import { FileCard } from './components/FileCard.js';
 import { FileTree } from './components/FileTree.js';
 import { Toasts, type Toast } from './components/Toasts.js';
 import type { DraftTarget } from './components/types.js';
+import { jumpTo } from './flash.js';
 import { askForNotifications, chime, desktopNotify } from './notify.js';
 import { buildTree, flattenTree } from './tree.js';
-
-/** jump straight there — a smooth scroll across a long diff takes seconds — and mark the landing spot */
-function jumpTo(id: string, block: ScrollLogicalPosition): void {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.scrollIntoView({ behavior: 'auto', block });
-  el.classList.remove('flash');
-  void el.offsetWidth; // restart the animation when jumping to the same target twice
-  el.classList.add('flash');
-  window.setTimeout(() => el.classList.remove('flash'), 1400);
-}
 
 type ViewMode = 'unified' | 'split';
 type Theme = 'dark' | 'light';
@@ -42,6 +44,65 @@ function remember(key: string, value: string): void {
 /** "Viewed" is cleared when the file changes again, like it is on GitHub. */
 const signatureOf = (file: DiffFile) => `${file.additions}:${file.deletions}:${file.hunks.length}`;
 
+const PANEL = {
+  sidebar: { key: 'marj:sidebar-width', fallback: 300, min: 180, max: 640 },
+  chat: { key: 'marj:chat-width', fallback: 420, min: 280, max: 900 },
+} as const;
+
+function storedNumber(key: string, fallback: number): number {
+  const value = Number(stored(key, ''));
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+/**
+ * The drag handle between two panels. The width is written to a CSS variable
+ * on the fly and remembered on release; a double-click restores the default.
+ */
+function Resizer({
+  panel,
+  onChange,
+}: {
+  panel: keyof typeof PANEL;
+  /** called with the new width while dragging, and with null to reset */
+  onChange: (width: number | null) => void;
+}) {
+  const [active, setActive] = useState(false);
+  const start = (event: React.MouseEvent) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const spec = PANEL[panel];
+    const el = (event.currentTarget as HTMLElement)[panel === 'sidebar' ? 'previousElementSibling' : 'nextElementSibling'];
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const origin = event.clientX;
+    const initial = rect.width;
+    setActive(true);
+    document.body.classList.add('resizing');
+    const move = (e: MouseEvent) => {
+      const delta = panel === 'sidebar' ? e.clientX - origin : origin - e.clientX;
+      onChange(Math.min(spec.max, Math.max(spec.min, Math.round(initial + delta))));
+    };
+    const stop = () => {
+      setActive(false);
+      document.body.classList.remove('resizing');
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', stop);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', stop);
+  };
+  return (
+    <div
+      className={`resizer${active ? ' active' : ''}`}
+      role="separator"
+      aria-orientation="vertical"
+      title="Drag to resize · double-click to reset"
+      onMouseDown={start}
+      onDoubleClick={() => onChange(null)}
+    />
+  );
+}
+
 export function App() {
   const [diff, setDiff] = useState<DiffPayload | null>(null);
   const [threads, setThreads] = useState<Thread[]>([]);
@@ -56,6 +117,14 @@ export function App() {
   const [viewed, setViewed] = useState<Map<string, string>>(new Map());
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [pulse, setPulse] = useState(false);
+  const [chatOpen, setChatOpen] = useState(() => stored<string>('marj:chat', 'closed') === 'open');
+  const [sidebarOpen, setSidebarOpen] = useState(() => stored<string>('marj:sidebar', 'open') === 'open');
+  const [sidebarWidth, setSidebarWidth] = useState(() => storedNumber(PANEL.sidebar.key, PANEL.sidebar.fallback));
+  const [chatWidth, setChatWidth] = useState(() => storedNumber(PANEL.chat.key, PANEL.chat.fallback));
+  /** the file a chat location link last jumped to, highlighted in the sidebar */
+  const [activeFile, setActiveFile] = useState<string | null>(null);
+  /** a line a chat link asked for; the file card expands to it if the diff does not show it */
+  const [reveal, setReveal] = useState<{ file: string; line: number; nonce: number } | null>(null);
 
   const pulseTimer = useRef<number>();
   const collapsedInitialised = useRef(false);
@@ -108,6 +177,10 @@ export function App() {
   }, []);
 
   const scrollToThread = useCallback((threadId: string) => {
+    if (threadId === 'chat') {
+      setChatOpen(true);
+      return;
+    }
     setThreads((current) => {
       const thread = current.find((t) => t.id === threadId);
       if (thread) setCollapsed((folded) => new Set([...folded].filter((p) => p !== thread.file)));
@@ -137,10 +210,10 @@ export function App() {
 
       chime();
       for (const { thread, message } of unseen) {
-        const where = `${thread.file}:${thread.startLine}`;
+        const where = isChat(thread) ? 'the review chat' : describeTarget(thread);
         const preview = message.body.replace(/\s+/g, ' ').slice(0, 140);
         setToasts((current) =>
-          [...current, { id: ++toastId.current, title: `Claude replied on ${where}`, body: preview, threadId: thread.id }].slice(-4),
+          [...current, { id: ++toastId.current, title: `Claude replied in ${where}`, body: preview, threadId: thread.id }].slice(-4),
         );
         desktopNotify(`Claude replied · ${where}`, preview, `marj-${thread.id}`, () => scrollToThread(thread.id));
       }
@@ -175,6 +248,10 @@ export function App() {
   }, [theme]);
 
   useEffect(() => remember('marj:view', view), [view]);
+  useEffect(() => remember('marj:chat', chatOpen ? 'open' : 'closed'), [chatOpen]);
+  useEffect(() => remember('marj:sidebar', sidebarOpen ? 'open' : 'closed'), [sidebarOpen]);
+  useEffect(() => remember(PANEL.sidebar.key, String(sidebarWidth)), [sidebarWidth]);
+  useEffect(() => remember(PANEL.chat.key, String(chatWidth)), [chatWidth]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -185,14 +262,19 @@ export function App() {
       }
       if (event.key === 'Escape') setDraft(null);
       if (event.key === 'u') setView((current) => (current === 'unified' ? 'split' : 'unified'));
+      if (event.key === 'b') setSidebarOpen((open) => !open);
+      if (event.key === 'c') setChatOpen((open) => !open);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const chat = useMemo(() => threads.find(isChat) ?? null, [threads]);
+
   const threadsByFile = useMemo(() => {
     const map = new Map<string, Thread[]>();
     for (const thread of threads) {
+      if (isChat(thread)) continue;
       const list = map.get(thread.file) ?? [];
       list.push(thread);
       map.set(thread.file, list);
@@ -249,6 +331,24 @@ export function App() {
 
   const scrollToFile = useCallback((path: string) => jumpTo(`file-${path}`, 'start'), []);
 
+  /**
+   * A `path:line` link in the chat. Unfold the file, land on the line if the
+   * diff shows it (new side first, old side for deletions), else on the file
+   * header, and mark the file in the sidebar.
+   */
+  const revealNonce = useRef(0);
+  const navigate = useCallback((path: string, line: number | null) => {
+    setActiveFile(path);
+    setCollapsed((folded) => new Set([...folded].filter((p) => p !== path)));
+    document.getElementById(`tree-${path}`)?.scrollIntoView({ block: 'nearest' });
+    if (line === null) {
+      window.setTimeout(() => jumpTo(`file-${path}`, 'start'), 60);
+      return;
+    }
+    // the card owns the jump: it may have to fetch the file and expand the hunk first
+    setReveal({ file: path, line, nonce: ++revealNonce.current });
+  }, []);
+
   if (error && !diff) {
     return (
       <div className="fatal">
@@ -281,6 +381,15 @@ export function App() {
           <span className="spacer" />
           {pending > 0 && <span className="label accent large">{pending} waiting on Claude</span>}
           <button
+            className={`btn invisible chat-toggle${chatOpen ? ' fg-accent' : ''}`}
+            title={chatOpen ? 'Hide the review chat (c)' : 'Chat with Claude about the whole change (c)'}
+            onClick={() => setChatOpen((open) => !open)}
+          >
+            <CommentDiscussionIcon size={16} />
+            Chat
+            {chat && chat.messages.length > 0 && <span className="counter">{chat.messages.length}</span>}
+          </button>
+          <button
             className={`btn invisible icon-only${alerts ? ' fg-accent' : ''}`}
             title={alerts ? 'Chime + notify when Claude replies (on)' : 'Notifications off'}
             onClick={() => void toggleAlerts()}
@@ -297,6 +406,13 @@ export function App() {
         </div>
 
         <div className="pagehead-row toolbar">
+          <button
+            className="btn invisible icon-only"
+            title={sidebarOpen ? 'Hide the file tree (b)' : 'Show the file tree (b)'}
+            onClick={() => setSidebarOpen((open) => !open)}
+          >
+            {sidebarOpen ? <SidebarCollapseIcon size={16} /> : <SidebarExpandIcon size={16} />}
+          </button>
           <span className="tab selected">
             <GitCompareIcon size={16} />
             Files changed
@@ -328,8 +444,16 @@ export function App() {
         </div>
       </header>
 
-      <div className="workspace">
-        <FileTree files={files} threadsByFile={threadsByFile} viewed={viewed} onSelect={scrollToFile} />
+      <div
+        className="workspace"
+        style={{ '--sidebar-width': `${sidebarWidth}px`, '--chat-width': `${chatWidth}px` } as React.CSSProperties}
+      >
+        {sidebarOpen && (
+          <>
+            <FileTree files={files} threadsByFile={threadsByFile} viewed={viewed} active={activeFile} onSelect={scrollToFile} />
+            <Resizer panel="sidebar" onChange={(w) => setSidebarWidth(w ?? PANEL.sidebar.fallback)} />
+          </>
+        )}
         <main className="stream">
           {diff && files.length === 0 && <div className="empty">No changes to review.</div>}
           {files.map((file) => (
@@ -347,9 +471,23 @@ export function App() {
               onDraft={setDraft}
               onSubmitDraft={submitDraft}
               onThreadsChanged={loadThreads}
+              reveal={reveal && reveal.file === file.path ? reveal : null}
             />
           ))}
         </main>
+        {chatOpen && (
+          <Resizer panel="chat" onChange={(w) => setChatWidth(w ?? PANEL.chat.fallback)} />
+        )}
+        {chatOpen && (
+          <ChatPanel
+            chat={chat}
+            files={files}
+            author={diff?.author ?? 'you'}
+            onClose={() => setChatOpen(false)}
+            onChanged={loadThreads}
+            onNavigate={navigate}
+          />
+        )}
       </div>
 
       <Toasts

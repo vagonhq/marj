@@ -1,15 +1,17 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import type {
-  AgentEvent,
-  Anchor,
-  Intent,
-  Message,
-  Role,
-  Side,
-  Thread,
-  ThreadStatus,
-  WaitResponse,
+import {
+  CHAT_THREAD,
+  isChat,
+  type AgentEvent,
+  type Anchor,
+  type Intent,
+  type Message,
+  type Role,
+  type Side,
+  type Thread,
+  type ThreadStatus,
+  type WaitResponse,
 } from '../shared/types.js';
 
 interface Persisted {
@@ -109,8 +111,31 @@ export class ThreadStore {
     return thread;
   }
 
+  /** The review chat, created on first use. */
+  chat(): Thread {
+    const existing = this.threads.get(CHAT_THREAD);
+    if (existing) return existing;
+    const now = new Date().toISOString();
+    const thread: Thread = {
+      id: CHAT_THREAD,
+      file: '',
+      side: 'new',
+      startLine: 0,
+      endLine: 0,
+      anchor: { text: [], before: [], after: [] },
+      status: 'open',
+      agentTyping: false,
+      createdAt: now,
+      updatedAt: now,
+      messages: [],
+      anchoredVersion: 0,
+    };
+    this.threads.set(CHAT_THREAD, thread);
+    return thread;
+  }
+
   addMessage(threadId: string, role: Role, body: string, intent?: Intent): Message {
-    const thread = this.threads.get(threadId);
+    const thread = threadId === CHAT_THREAD ? this.chat() : this.threads.get(threadId);
     if (!thread) throw new Error(`no such thread: ${threadId}`);
     return this.appendMessage(thread, role, body, 'reply', intent);
   }
@@ -140,7 +165,7 @@ export class ThreadStore {
         seq,
         threadId: thread.id,
         messageId: message.id,
-        kind,
+        kind: isChat(thread) ? 'chat' : kind,
         file: thread.file,
         side: thread.side,
         startLine: thread.startLine,

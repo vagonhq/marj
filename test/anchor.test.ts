@@ -120,3 +120,41 @@ describe('anchoring', () => {
     expect(similarity('const a = 1;', 'throw new Error("boom");')).toBeLessThan(0.45);
   });
 });
+
+describe('file-level threads', () => {
+  const fileThread = (file: string): Thread => ({
+    ...threadOn(before, 4),
+    file,
+    startLine: 0,
+    endLine: 0,
+    anchor: { text: [], before: [], after: [] },
+  });
+
+  it('stay attached to the file as long as it is in the diff', () => {
+    const rewritten = diffOf(['@@ -1,2 +1,2 @@', '-const a = 1;', '+const a = 2;', ' export { a };']);
+    expect(findAnchor(rewritten, fileThread('app.js'))).toEqual({ startLine: 0, endLine: 0, moved: false });
+  });
+
+  it('go outdated when the file leaves the diff and come back with it', async () => {
+    const { ThreadStore } = await import('../src/server/threads.js');
+    const { reanchorAll } = await import('../src/server/anchor.js');
+    const store = await ThreadStore.load(`${await import('node:os').then((os) => os.tmpdir())}/marj-file-thread-${process.pid}.json`);
+    const thread = store.createThread({ file: 'app.js', side: 'new', startLine: 0, endLine: 0, body: 'split this file' });
+
+    const payload = (files: typeof before[]) => ({
+      mode: 'test',
+      args: [],
+      repoRoot: '/',
+      files,
+      version: 1,
+      computedAt: '',
+      author: '',
+    });
+    await reanchorAll(store, payload([]));
+    expect(store.get(thread.id)?.status).toBe('outdated');
+
+    await reanchorAll(store, payload([before]));
+    expect(store.get(thread.id)?.status).toBe('open');
+    expect(store.get(thread.id)?.startLine).toBe(0);
+  });
+});

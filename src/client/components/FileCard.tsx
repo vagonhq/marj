@@ -1,6 +1,28 @@
-import { CheckIcon, ChevronDownIcon, ChevronRightIcon, CommentIcon, CopyIcon } from '@primer/octicons-react';
+import {
+  CheckIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  CommentDiscussionIcon,
+  CommentIcon,
+  CopyIcon,
+  FoldDownIcon,
+  FoldUpIcon,
+  UnfoldIcon,
+} from '@primer/octicons-react';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import type { DiffFile, DiffHunk, DiffLine, Intent, Side, Thread } from '../../shared/types';
+import { api } from '../api.js';
+import { addRange, expandFile, gapsOf, STEP, type Gap, type Range } from '../expand.js';
+import { flashElement, lineRow } from '../flash.js';
+import {
+  FILE_LEVEL,
+  isFileLevel,
+  type DiffFile,
+  type DiffHunk,
+  type DiffLine,
+  type Intent,
+  type Side,
+  type Thread,
+} from '../../shared/types';
 import { highlightFile, languageOf, lineKey, type TokenLine } from '../highlight.js';
 import { Composer } from './Composer.js';
 import { ThreadCard } from './ThreadCard.js';
@@ -19,6 +41,8 @@ interface Props {
   onDraft: (draft: DraftTarget | null) => void;
   onSubmitDraft: (body: string, intent: Intent) => Promise<void>;
   onThreadsChanged: () => void;
+  /** a line a chat link wants shown: expand around it if needed, then flash it */
+  reveal?: { line: number; nonce: number } | null;
 }
 
 /**
@@ -99,33 +123,103 @@ export function FileCard(props: Props) {
     onDraft,
     onSubmitDraft,
     onThreadsChanged,
+    reveal,
   } = props;
 
   const language = useMemo(() => languageOf(file.path), [file.path]);
-  const rows = useMemo(() => buildRows(file, view), [file, view]);
+
+  // ---- expanding context around hunks ----
+  // `full` is the whole new-side file once fetched; `ranges` are the lines the
+  // reviewer asked for. The diff shown is the original plus those lines.
+  const [full, setFull] = useState<string[] | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
+  const [ranges, setRanges] = useState<Range[]>([]);
+  const fetching = useRef<Promise<void> | null>(null);
+  /** threads whose hidden lines were already pulled into view */
+  const revealed = useRef(new Set<string>());
+
+  // the file was rewritten: line numbers moved, so start over
+  const signature = `${file.additions}:${file.deletions}:${file.hunks.length}`;
+  useEffect(() => {
+    setFull(null);
+    setRanges([]);
+    setUnavailable(false);
+    fetching.current = null;
+    revealed.current.clear();
+  }, [signature, file.path]);
+
+  const canExpand = !file.binary && file.status !== 'deleted' && !unavailable;
+
+  const expand = (range: Range) => {
+    if (!canExpand) return;
+    setRanges((current) => addRange(current, range));
+    if (!full && !fetching.current) {
+      fetching.current = api
+        .file(file.path)
+        .then(({ lines }) => setFull(lines))
+        .catch(() => setUnavailable(true));
+    }
+  };
+
+  const shown = useMemo(() => expandFile(file, full, ranges), [file, full, ranges]);
+  const gaps = useMemo(() => (canExpand ? gapsOf(shown, full ? full.length : null) : []), [shown, full, canExpand]);
+  const rows = useMemo(() => buildRows(shown, view), [shown, view]);
+  const hasNewLine = (no: number) => shown.hunks.some((h) => h.lines.some((l) => l.newNo === no));
+
+  // threads on lines outside the hunks (left on expanded context) get their lines back
+  useEffect(() => {
+    for (const thread of threads) {
+      if (thread.status === 'outdated' || thread.side !== 'new' || thread.startLine === 0) continue;
+      if (hasNewLine(thread.endLine) || revealed.current.has(thread.id)) continue;
+      revealed.current.add(thread.id);
+      expand([thread.startLine - 3, thread.endLine + 3]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threads, shown]);
+
+  const revealTried = useRef(-1);
+  useEffect(() => {
+    if (!reveal) return;
+    const row = lineRow(file.path, reveal.line);
+    if (row) {
+      flashElement(row, 'center');
+      return;
+    }
+    if (revealTried.current === reveal.nonce) return;
+    revealTried.current = reveal.nonce;
+    expand([reveal.line - 5, reveal.line + 5]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reveal, shown]);
 
   // syntax colours arrive asynchronously; plain text is shown until then
   const [tokens, setTokens] = useState<Map<string, TokenLine> | null>(null);
   useEffect(() => {
     if (!language || collapsed || file.binary) return;
     let alive = true;
-    highlightFile(file, language)
+    highlightFile(shown, language)
       .then((result) => alive && setTokens(result))
       .catch(() => alive && setTokens(null));
     return () => {
       alive = false;
     };
-  }, [file, language, collapsed]);
+  }, [shown, language, collapsed]);
 
   const [span, setSpan] = useState<{ side: Side; from: number; to: number } | null>(null);
   const [dragging, setDragging] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const mine = draft && draft.file === file.path ? draft : null;
+  const fileDraft = !!mine && isFileLevel(mine);
 
   useEffect(() => {
-    if (!mine) setSpan(null);
-  }, [mine]);
+    if (!mine || fileDraft) setSpan(null);
+  }, [mine, fileDraft]);
+
+  /** comment on the file as a whole; the composer sits above the diff, so unfold a collapsed card */
+  const draftOnFile = () => {
+    if (collapsed) onToggle();
+    onDraft({ file: file.path, side: 'new', startLine: FILE_LEVEL, endLine: FILE_LEVEL });
+  };
 
   /** turn a row span into the line range the thread will carry */
   const publish = (side: Side, from: number, to: number) => {
@@ -184,8 +278,10 @@ export function FileCard(props: Props) {
 
   const composerRow = span && !dragging ? Math.max(span.from, span.to) : -1;
 
+  // file-level threads have endLine 0, which no diff row carries, so they never land in a row overlay
   const threadsAt = (side: Side, no: number) =>
     threads.filter((t) => t.status !== 'outdated' && t.side === side && t.endLine === no);
+  const fileThreads = threads.filter((t) => t.status !== 'outdated' && isFileLevel(t));
 
   const gutterButton = (side: Side, no: number, index: number) => (
     <button
@@ -203,7 +299,7 @@ export function FileCard(props: Props) {
       ...(row.oldNo !== null ? threadsAt('old', row.oldNo) : []),
       ...(row.newNo !== null ? threadsAt('new', row.newNo) : []),
     ];
-    const showDraft = !!mine && composerRow === row.index;
+    const showDraft = !!mine && !fileDraft && composerRow === row.index;
     if (items.length === 0 && !showDraft) return null;
     const header =
       mine && mine.startLine === mine.endLine
@@ -242,7 +338,13 @@ export function FileCard(props: Props) {
     const selected = selectedRow(row.index);
     return (
       <Fragment key={`u${row.index}`}>
-        <tr className={`line ${line.type}${selected ? ' selected' : ''}`} onMouseEnter={() => extendSelect(row.index)}>
+        <tr
+          className={`line ${line.type}${selected ? ' selected' : ''}`}
+          data-file={file.path}
+          data-old={line.oldNo ?? undefined}
+          data-new={line.newNo ?? undefined}
+          onMouseEnter={() => extendSelect(row.index)}
+        >
           <td className="num old" onMouseDown={(e) => no !== null && startSelect(e, side, row.index)}>
             {no !== null && gutterButton(side, no, row.index)}
             <span className="n">{line.oldNo ?? ''}</span>
@@ -266,7 +368,7 @@ export function FileCard(props: Props) {
     const rightSelected = selected && span?.side === 'new';
     return (
       <Fragment key={`s${row.index}`}>
-        <tr className="line split">
+        <tr className="line split" data-file={file.path} data-old={row.oldNo ?? undefined} data-new={row.newNo ?? undefined}>
           <td
             className={`num old${leftSelected ? ' selected' : ''}`}
             onMouseDown={(e) => row.oldNo !== null && startSelect(e, 'old', row.index)}
@@ -298,6 +400,52 @@ export function FileCard(props: Props) {
         </tr>
         {overlay(row, 4)}
       </Fragment>
+    );
+  };
+
+  /**
+   * The buttons on a hunk header. A short gap opens in one click; a long one
+   * opens twenty lines at a time from either end, like GitHub.
+   */
+  const expander = (gap: Gap | undefined) => {
+    if (!gap) return null;
+    const size = gap.end === null ? null : gap.end - gap.start + 1;
+    const first = gap.before === 0;
+    const tail = gap.before === shown.hunks.length;
+    if (size !== null && size <= STEP) {
+      return (
+        <button className="expander" title={`Show ${size} hidden line${size === 1 ? '' : 's'}`} onClick={() => expand([gap.start, gap.end!])}>
+          <UnfoldIcon size={16} />
+        </button>
+      );
+    }
+    const down = (
+      <button
+        key="down"
+        className="expander"
+        title={`Show ${STEP} more lines below`}
+        onClick={() => expand([gap.start, gap.start + STEP - 1])}
+      >
+        <FoldDownIcon size={16} />
+      </button>
+    );
+    const up = (
+      <button
+        key="up"
+        className="expander"
+        title={`Show ${STEP} more lines above`}
+        onClick={() => expand([gap.end! - STEP + 1, gap.end!])}
+      >
+        <FoldUpIcon size={16} />
+      </button>
+    );
+    if (first) return up;
+    if (tail || gap.end === null) return down;
+    return (
+      <span className="expander-pair">
+        {down}
+        {up}
+      </span>
     );
   };
 
@@ -335,6 +483,14 @@ export function FileCard(props: Props) {
             <CommentIcon size={14} /> {threads.length}
           </span>
         )}
+        <button
+          className={`btn invisible icon-only file-comment${fileDraft ? ' fg-accent' : ''}`}
+          title="Comment on the whole file"
+          aria-label={`Comment on ${file.path}`}
+          onClick={draftOnFile}
+        >
+          <CommentDiscussionIcon size={16} />
+        </button>
         <span className="diffstat">
           <span className="add">+{file.additions}</span>
           <span className="del">−{file.deletions}</span>
@@ -347,6 +503,22 @@ export function FileCard(props: Props) {
 
       {!collapsed && (
         <>
+          {(fileThreads.length > 0 || fileDraft) && (
+            <div className="file-threads">
+              {fileThreads.map((thread) => (
+                <ThreadCard key={thread.id} thread={thread} author={author} onChanged={onThreadsChanged} />
+              ))}
+              {fileDraft && (
+                <Composer
+                  header={`Commenting on ${file.path} as a whole`}
+                  autoFocus
+                  onCancel={() => onDraft(null)}
+                  onSubmit={onSubmitDraft}
+                />
+              )}
+            </div>
+          )}
+
           {outdated.length > 0 && (
             <div className="outdated-block">
               <div className="outdated-title">Outdated — the code these refer to has changed</div>
@@ -379,10 +551,12 @@ export function FileCard(props: Props) {
                 )}
               </colgroup>
               <tbody>
-                {file.hunks.map((hunk, hunkIndex) => (
+                {shown.hunks.map((hunk, hunkIndex) => (
                   <Fragment key={`h${hunkIndex}`}>
                     <tr className="hunk-head">
-                      <td className="hunk-num" colSpan={view === 'unified' ? 2 : 1} />
+                      <td className="hunk-num" colSpan={view === 'unified' ? 2 : 1}>
+                        {expander(gaps.find((g) => g.before === hunkIndex))}
+                      </td>
                       <td colSpan={view === 'unified' ? 1 : 3}>
                         @@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},{hunk.newLines} @@
                         {hunk.section && <span className="section"> {hunk.section}</span>}
@@ -393,6 +567,14 @@ export function FileCard(props: Props) {
                       .map((row) => (view === 'unified' ? unifiedRow(row) : splitRow(row)))}
                   </Fragment>
                 ))}
+                {gaps.some((g) => g.before === shown.hunks.length) && (
+                  <tr className="hunk-head tail">
+                    <td className="hunk-num" colSpan={view === 'unified' ? 2 : 1}>
+                      {expander(gaps.find((g) => g.before === shown.hunks.length))}
+                    </td>
+                    <td colSpan={view === 'unified' ? 1 : 3} />
+                  </tr>
+                )}
               </tbody>
             </table>
           )}

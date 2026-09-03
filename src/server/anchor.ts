@@ -1,10 +1,26 @@
-import type { Anchor, DiffFile, DiffPayload, Side, Thread } from '../shared/types.js';
+import {
+  isChat,
+  isFileLevel,
+  type Anchor,
+  type DiffFile,
+  type DiffPayload,
+  type Side,
+  type Thread,
+} from '../shared/types.js';
 import type { ThreadStore } from './threads.js';
 
-interface NumberedLine {
+export interface NumberedLine {
   no: number;
   text: string;
 }
+
+/**
+ * Full file content for one side, when the server can read it. Anchors built
+ * from the whole file also cover lines the reviewer expanded into view.
+ */
+export type LinesFor = (file: DiffFile, side: Side) => Promise<NumberedLine[] | null>;
+
+export const numbered = (lines: string[]): NumberedLine[] => lines.map((text, i) => ({ no: i + 1, text }));
 
 /** The lines of a file that exist on one side of the diff, in order. */
 export function sideLines(file: DiffFile, side: Side): NumberedLine[] {
@@ -25,8 +41,8 @@ export function buildAnchor(
   side: Side,
   startLine: number,
   endLine: number,
+  lines: NumberedLine[] = sideLines(file, side),
 ): Anchor {
-  const lines = sideLines(file, side);
   const index = new Map(lines.map((l, i) => [l.no, i]));
   const from = index.get(startLine);
   const to = index.get(endLine);
@@ -127,8 +143,13 @@ function fuzzyFind(lines: NumberedLine[], anchor: Anchor, near: number): AnchorR
  * Find where a thread's lines live in the current diff. Exact position first,
  * then the same content anywhere in the file (closest match wins).
  */
-export function findAnchor(file: DiffFile, thread: Thread): AnchorResult | null {
-  const lines = sideLines(file, thread.side);
+export function findAnchor(
+  file: DiffFile,
+  thread: Thread,
+  lines: NumberedLine[] = sideLines(file, thread.side),
+): AnchorResult | null {
+  // a thread on the whole file stays put as long as the file is in the diff
+  if (isFileLevel(thread)) return { startLine: 0, endLine: 0, moved: false };
   if (lines.length === 0) return null;
 
   const anchor = thread.anchor;
@@ -160,7 +181,7 @@ export function findAnchor(file: DiffFile, thread: Thread): AnchorResult | null 
  * Re-point every thread at the freshly computed diff. Threads whose code is
  * gone become `outdated`; threads that come back become open again.
  */
-export function reanchorAll(store: ThreadStore, diff: DiffPayload): void {
+export async function reanchorAll(store: ThreadStore, diff: DiffPayload, linesFor?: LinesFor): Promise<void> {
   const byPath = new Map<string, DiffFile>();
   for (const file of diff.files) {
     byPath.set(file.path, file);
@@ -168,9 +189,10 @@ export function reanchorAll(store: ThreadStore, diff: DiffPayload): void {
   }
 
   for (const thread of store.list()) {
-    if (thread.status === 'resolved') continue;
+    if (thread.status === 'resolved' || isChat(thread)) continue;
     const file = byPath.get(thread.file);
-    const result = file ? findAnchor(file, thread) : null;
+    const full = file && linesFor ? await linesFor(file, thread.side) : null;
+    const result = file ? findAnchor(file, thread, full ?? sideLines(file, thread.side)) : null;
 
     if (!result) {
       if (thread.status !== 'outdated') {

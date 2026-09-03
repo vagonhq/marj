@@ -3,11 +3,11 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
-import { buildAnchor, reanchorAll, sideLines } from './anchor.js';
-import { computeDiff, diffFromRaw, GitError, repoRootOf, resolveTarget, type DiffTarget } from './git.js';
+import { buildAnchor, numbered, reanchorAll, sideLines, type NumberedLine } from './anchor.js';
+import { computeDiff, diffFromRaw, GitError, readSideFile, repoRootOf, resolveTarget, type DiffTarget } from './git.js';
 import { ThreadStore } from './threads.js';
 import { startWatcher } from './watch.js';
-import type { DiffFile, DiffPayload, ServerEvent, ServerInfo } from '../shared/types.js';
+import { FILE_LEVEL, type DiffFile, type DiffPayload, type ServerEvent, type ServerInfo } from '../shared/types.js';
 
 const CLIENT_DIR = fileURLToPath(new URL('../../client', import.meta.url));
 
@@ -15,12 +15,16 @@ export interface StartOptions {
   cwd: string;
   positional: string[];
   staged?: boolean;
+  /** compare two revisions tip to tip instead of from their merge base */
+  exact?: boolean;
   port?: number;
   host?: string;
   context?: number;
   /** raw unified diff read from stdin instead of running git */
   stdinDiff?: string;
   watch?: boolean;
+  /** an isolated review: its own threads, chat and server registration */
+  session?: string;
 }
 
 export interface RunningServer {
@@ -30,13 +34,24 @@ export interface RunningServer {
 
 export const MARJ_DIR = '.marj';
 
+/** valid session name, or null; keeps the name safe as a folder and stable across commands */
+export function normaliseSession(name: string | undefined): string | null {
+  if (!name) return null;
+  const slug = name.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+  return slug || null;
+}
+
+/** Where a session keeps its threads.json and server.json (the default lives in .marj itself). */
+export function stateDir(repoRoot: string, session: string | null): string {
+  return session ? path.join(repoRoot, MARJ_DIR, 'sessions', session) : path.join(repoRoot, MARJ_DIR);
+}
+
 /**
- * A marj already serving this repo, or null. Several repos can run side by side
- * (each picks its own port), but a second server for the *same* repo would
- * overwrite server.json and leave the CLI talking to the wrong one.
+ * A marj already serving this repo (and this session), or null. Repos and
+ * sessions each keep their own server.json, so they never overwrite each other.
  */
-export async function findLiveServer(repoRoot: string): Promise<ServerInfo | null> {
-  const infoPath = path.join(repoRoot, MARJ_DIR, 'server.json');
+export async function findLiveServer(repoRoot: string, session: string | null = null): Promise<ServerInfo | null> {
+  const infoPath = path.join(stateDir(repoRoot, session), 'server.json');
   let info: ServerInfo;
   try {
     info = JSON.parse(await fs.readFile(infoPath, 'utf8')) as ServerInfo;
@@ -62,19 +77,39 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   const context = opts.context ?? 5;
   const host = opts.host ?? '127.0.0.1';
   const repoRoot = await repoRootOf(opts.cwd);
-  const marjDir = path.join(repoRoot, MARJ_DIR);
+  const session = normaliseSession(opts.session);
+  const marjDir = stateDir(repoRoot, session);
   await fs.mkdir(marjDir, { recursive: true });
   await ensureGitExclude(repoRoot);
 
   const store = await ThreadStore.load(path.join(marjDir, 'threads.json'));
 
   let target: DiffTarget = { args: [], mode: 'stdin', includeUntracked: false };
-  if (!opts.stdinDiff) target = await resolveTarget(repoRoot, opts.positional, { staged: opts.staged });
+  if (!opts.stdinDiff) {
+    target = await resolveTarget(repoRoot, opts.positional, { staged: opts.staged, exact: opts.exact });
+  }
 
   let diff: DiffPayload = opts.stdinDiff
     ? await diffFromRaw(opts.stdinDiff, repoRoot)
     : await computeDiff(repoRoot, target, context);
-  reanchorAll(store, diff);
+
+  // whole-file content per side, read once per diff version
+  let fileCache = new Map<string, Promise<string[] | null>>();
+  const fileLines = (side: 'old' | 'new', file: string): Promise<string[] | null> => {
+    const key = `${side}:${file}`;
+    let pending = fileCache.get(key);
+    if (!pending) {
+      pending = readSideFile(repoRoot, target, side, file);
+      fileCache.set(key, pending);
+    }
+    return pending;
+  };
+  const linesFor = async (file: DiffFile, side: 'old' | 'new'): Promise<NumberedLine[] | null> => {
+    const path = side === 'old' ? file.oldPath ?? file.path : file.path;
+    const lines = await fileLines(side, path);
+    return lines ? numbered(lines) : null;
+  };
+  await reanchorAll(store, diff, linesFor);
 
   const clients = new Set<express.Response>();
   const broadcast = (event: ServerEvent) => {
@@ -86,7 +121,8 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     if (opts.stdinDiff) return;
     try {
       diff = await computeDiff(repoRoot, target, context);
-      reanchorAll(store, diff);
+      fileCache = new Map();
+      await reanchorAll(store, diff, linesFor);
       broadcast({ type: 'diff:changed', version: diff.version });
     } catch (err) {
       console.error('[marj] diff refresh failed:', (err as Error).message);
@@ -102,26 +138,43 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
 
   app.get('/api/threads', (_req, res) => res.json({ cursor: store.cursor, threads: store.list() }));
 
-  app.get('/api/threads/:id', (req, res) => {
+  app.get('/api/threads/:id', async (req, res) => {
     const thread = store.get(req.params.id);
     if (!thread) return res.status(404).json({ error: 'no such thread' });
-    res.json({ thread, context: threadContext(diff, thread.file, thread.side, thread.startLine, thread.endLine) });
+    const diffFile = diff.files.find((f) => f.path === thread.file || f.oldPath === thread.file);
+    const full = diffFile ? await linesFor(diffFile, thread.side) : null;
+    res.json({ thread, context: threadContext(diff, thread.file, thread.side, thread.startLine, thread.endLine, 6, full) });
   });
 
-  app.post('/api/threads', (req, res) => {
+  /** One side of a file in full, so the browser can expand the lines around a hunk. */
+  app.get('/api/file', async (req, res) => {
+    const file = String(req.query.path ?? '');
+    const side = req.query.side === 'old' ? 'old' : 'new';
+    const known = diff.files.some((f) => f.path === file || f.oldPath === file);
+    if (!file || !known) return res.status(404).json({ error: 'file is not part of this diff' });
+    const lines = await fileLines(side, file);
+    if (!lines) return res.status(404).json({ error: 'no content for this side' });
+    res.json({ path: file, side, lines });
+  });
+
+  app.post('/api/threads', async (req, res) => {
     const { file, side, startLine, endLine, body, role, intent } = req.body ?? {};
     if (typeof file !== 'string' || typeof body !== 'string' || !body.trim()) {
       return res.status(400).json({ error: 'file and body are required' });
     }
-    const start = Number(startLine);
-    const end = Number(endLine ?? startLine);
+    // no line (or 0) means the comment is about the file as a whole
+    const start = Number(startLine ?? FILE_LEVEL) || FILE_LEVEL;
+    const end = Number(endLine ?? start) || start;
     const diffFile = diff.files.find((f) => f.path === file || f.oldPath === file);
-    const anchor = diffFile ? buildAnchor(diffFile, side === 'old' ? 'old' : 'new', start, end) : undefined;
+    const which = side === 'old' ? 'old' : 'new';
+    const full = diffFile && start !== FILE_LEVEL ? await linesFor(diffFile, which) : null;
+    const anchor =
+      diffFile && start !== FILE_LEVEL ? buildAnchor(diffFile, which, start, end, full ?? undefined) : undefined;
     const thread = store.createThread({
       file,
       side: side === 'old' ? 'old' : 'new',
       startLine: start,
-      endLine: Number.isFinite(end) ? end : start,
+      endLine: Math.max(start, end),
       body,
       anchor,
       role: role === 'agent' ? 'agent' : 'user',
@@ -212,6 +265,7 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     cwd: opts.cwd,
     mode: diff.mode,
     startedAt: new Date().toISOString(),
+    ...(session ? { session } : {}),
   };
   const infoPath = path.join(marjDir, 'server.json');
   await fs.writeFile(infoPath, JSON.stringify(info, null, 2));
@@ -228,7 +282,10 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   return { info, close };
 }
 
-/** Lines around a thread, straight from the diff, for the agent to read. */
+/**
+ * Lines around a thread, straight from the diff, for the agent to read. A
+ * file-level thread gets the file's whole diff with nothing marked.
+ */
 export function threadContext(
   diff: DiffPayload,
   file: string,
@@ -236,10 +293,11 @@ export function threadContext(
   startLine: number,
   endLine: number,
   pad = 6,
+  full: NumberedLine[] | null = null,
 ): { file: string; lines: { no: number; text: string; type: string; commented: boolean }[] } {
   const diffFile: DiffFile | undefined = diff.files.find((f) => f.path === file || f.oldPath === file);
   if (!diffFile) return { file, lines: [] };
-  const numbered = sideLines(diffFile, side);
+  const numbered = full ?? sideLines(diffFile, side);
   const typeOf = new Map<number, string>();
   for (const hunk of diffFile.hunks) {
     for (const line of hunk.lines) {
@@ -247,13 +305,14 @@ export function threadContext(
       if (no !== null) typeOf.set(no, line.type);
     }
   }
+  const wholeFile = startLine === FILE_LEVEL;
   const lines = numbered
-    .filter((l) => l.no >= startLine - pad && l.no <= endLine + pad)
+    .filter((l) => wholeFile || (l.no >= startLine - pad && l.no <= endLine + pad))
     .map((l) => ({
       no: l.no,
       text: l.text,
       type: typeOf.get(l.no) ?? 'context',
-      commented: l.no >= startLine && l.no <= endLine,
+      commented: !wholeFile && l.no >= startLine && l.no <= endLine,
     }));
   return { file: diffFile.path, lines };
 }

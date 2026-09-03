@@ -69,6 +69,35 @@ export interface Message {
 
 export type ThreadStatus = 'open' | 'answered' | 'resolved' | 'outdated';
 
+/**
+ * Threads about the file as a whole carry no line: startLine and endLine are 0.
+ * Diff line numbers start at 1, so 0 never collides with a real position.
+ */
+export const FILE_LEVEL = 0;
+
+export const isFileLevel = (target: { startLine: number }): boolean => target.startLine === FILE_LEVEL;
+
+/**
+ * The review chat: one conversation about the change as a whole, not tied to
+ * a file. Stored as a thread with a fixed id so the agent can `marj reply chat`.
+ */
+export const CHAT_THREAD = 'chat';
+
+export const isChat = (thread: { id: string }): boolean => thread.id === CHAT_THREAD;
+
+/** What the "Explain these changes" button sends into the chat. */
+export const EXPLAIN_PROMPT =
+  'Explain what these changes do as a whole: the goal, then file by file what was added or changed and why. ' +
+  'Point at the code with `path:line` references so I can jump to them.';
+
+/** "src/a.ts:12-15", "src/a.ts:12", or just "src/a.ts" for a file-level thread */
+export function describeTarget(target: { file: string; startLine: number; endLine: number }): string {
+  if (isFileLevel(target)) return target.file;
+  const range =
+    target.startLine === target.endLine ? `${target.startLine}` : `${target.startLine}-${target.endLine}`;
+  return `${target.file}:${range}`;
+}
+
 export interface Anchor {
   /** the commented lines themselves */
   text: string[];
@@ -99,7 +128,8 @@ export interface AgentEvent {
   seq: number;
   threadId: string;
   messageId: string;
-  kind: 'new-thread' | 'reply';
+  /** `chat` for messages in the review chat, which has no file */
+  kind: 'new-thread' | 'reply' | 'chat';
   file: string;
   side: Side;
   startLine: number;
@@ -123,6 +153,8 @@ export interface ServerInfo {
   cwd: string;
   mode: string;
   startedAt: string;
+  /** the isolated session this server serves, or undefined for the default one */
+  session?: string;
 }
 
 export type ServerEvent =

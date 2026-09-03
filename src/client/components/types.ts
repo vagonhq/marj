@@ -1,6 +1,6 @@
 import type { Side } from '../../shared/types';
 
-/** The line (or range) the reviewer is about to comment on. */
+/** The line (or range) the reviewer is about to comment on; both 0 for the file as a whole. */
 export interface DraftTarget {
   file: string;
   side: Side;

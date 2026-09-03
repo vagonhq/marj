@@ -12,6 +12,9 @@ async function json<T>(input: string, init?: RequestInit): Promise<T> {
 export const api = {
   diff: () => json<DiffPayload>('/api/diff'),
   threads: () => json<{ cursor: number; threads: Thread[] }>('/api/threads'),
+  /** one side of a file in full, for expanding context around hunks */
+  file: (path: string, side: 'old' | 'new' = 'new') =>
+    json<{ path: string; side: string; lines: string[] }>(`/api/file?path=${encodeURIComponent(path)}&side=${side}`),
   createThread: (input: {
     file: string;
     side: string;

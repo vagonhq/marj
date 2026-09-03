@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { promises as fs } from 'node:fs';
+import path from 'node:path';
 import process from 'node:process';
-import { findLiveServer, GitError, startServer } from '../server/index.js';
+import { findLiveServer, GitError, normaliseSession, startServer, stateDir } from '../server/index.js';
 import { repoRootOf } from '../server/git.js';
 import { findServer, MarjClient, NoServerError } from './api.js';
-import type { AgentEvent } from '../shared/types.js';
+import { describeTarget, FILE_LEVEL, isChat, isFileLevel, type AgentEvent, type Thread } from '../shared/types.js';
 
 const HELP = `marj — review local git changes in your browser, with your Claude Code session in the thread
 
@@ -14,21 +15,31 @@ Usage
   marj threads [--pending]        list threads
   marj show <id>                  print a thread with its code context
   marj reply <id> [text]          post an agent reply (reads stdin when text is omitted)
+  marj reply chat [text]          answer in the review chat (the "Explain these changes" panel)
   marj comment <file> <line> <text>   open a new thread as the agent
+  marj comment <file> <text>      open a thread on the file as a whole
   marj resolve <id>               mark a thread resolved
   marj delete <id>...             delete threads permanently
   marj stop                       stop the running server
+
+Sessions (independent reviews in the same repo)
+  marj --session <name>           start an isolated server: its own threads, chat and port
+  marj <cmd> --session <name>     talk to that server (watch, threads, show, reply, stop, …)
+  marj --force                    start another server without a name (auto: s2, s3, …)
 
 Targets
   marj                            working tree vs HEAD (plus untracked files)
   marj .                          unstaged changes only
   marj --staged                   staged changes only
   marj a1b2c3d                    a single commit
-  marj main..feature              a range
-  marj main feature               two revisions
+  marj develop                    the current branch as a PR into develop
+  marj develop..feature           feature as a PR into develop (from the merge base, like GitHub)
+  marj develop feature            same
+  marj https://github.com/o/r/pull/12   a GitHub pull request (also o/r#12, #12, pull/12)
   git diff | marj -               a diff from stdin
 
 Options
+  --exact          compare two revisions tip to tip instead of from their merge base
   --port <n>       preferred port (default 4711)
   --host <h>       bind address (default 127.0.0.1)
   --context <n>    diff context lines (default 5)
@@ -37,6 +48,7 @@ Options
   --no-watch       do not refresh when files change
   --json           machine readable output
   --pending        (threads) only unanswered threads
+  --session <name> (any command) target an isolated review, not the default one
   --resolve        (reply) mark the thread resolved afterwards
   --typing         (reply) only flip the "Claude is typing" indicator
   --cursor <n>     (watch) resume from a sequence number
@@ -53,7 +65,7 @@ interface Args {
 function parseArgs(argv: string[]): Args {
   const flags: Record<string, string | boolean> = {};
   const positional: string[] = [];
-  const withValue = new Set(['port', 'host', 'context', 'cursor', 'side', 'timeout']);
+  const withValue = new Set(['port', 'host', 'context', 'cursor', 'side', 'timeout', 'session']);
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -88,17 +100,34 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
+function sessionOf(flags: Args['flags']): string | undefined {
+  return typeof flags.session === 'string' && flags.session.trim() ? flags.session : undefined;
+}
+
 async function connect(flags: Args['flags']): Promise<MarjClient> {
-  const info = await findServer(process.cwd(), flags.port ? num(flags.port, 0) : undefined);
+  const info = await findServer(process.cwd(), flags.port ? num(flags.port, 0) : undefined, sessionOf(flags));
   return new MarjClient(info.url);
 }
 
+/** Pick a free `s2`, `s3`, … under .marj/sessions so `--force` never clobbers the default. */
+async function autoSession(repoRoot: string): Promise<string> {
+  for (let n = 2; ; n++) {
+    const name = `s${n}`;
+    if (!(await findLiveServer(repoRoot, name))) return name;
+  }
+}
+
 function formatEvent(event: AgentEvent): string {
-  const range = event.startLine === event.endLine ? `${event.startLine}` : `${event.startLine}-${event.endLine}`;
   const body = event.body.replace(/\s*\n+\s*/g, ' ⏎ ').trim();
   const clipped = body.length > 400 ? `${body.slice(0, 397)}...` : body;
+  if (event.kind === 'chat') return `CHAT ${event.threadId} [${event.intent}] — ${clipped}`;
   const label = event.kind === 'new-thread' ? 'COMMENT' : 'REPLY';
-  return `${label} ${event.threadId} ${event.file}:${range} [${event.intent}] — ${clipped}`;
+  return `${label} ${event.threadId} ${whereIs({ ...event, id: event.threadId })} [${event.intent}] — ${clipped}`;
+}
+
+function whereIs(target: Pick<Thread, 'id' | 'file' | 'startLine' | 'endLine'>): string {
+  if (isChat(target)) return 'review chat';
+  return isFileLevel(target) ? `${target.file} (whole file)` : describeTarget(target);
 }
 
 async function cmdServe(args: Args): Promise<void> {
@@ -107,15 +136,22 @@ async function cmdServe(args: Args): Promise<void> {
   const stdinDiff = args.positional.includes('-') ? await readStdin() : undefined;
   const positional = args.positional.filter((p) => p !== '-');
 
-  // one server per repo; a second one would hijack .marj/server.json
-  if (args.flags.force !== true) {
-    const existing = await findLiveServer(await repoRootOf(process.cwd()));
-    if (existing) {
+  const repoRoot = await repoRootOf(process.cwd());
+  let session = normaliseSession(sessionOf(args.flags)) ?? undefined;
+
+  // one server per (repo, session); reuse an existing one rather than doubling up
+  const existing = await findLiveServer(repoRoot, session ?? null);
+  if (existing) {
+    if (args.flags.force === true) {
+      // an explicit second server for the same target gets its own isolated session
+      session = await autoSession(repoRoot);
+    } else {
       if (args.flags.json) {
         console.log(JSON.stringify({ ...existing, reused: true }));
       } else {
-        console.log(`marj is already running for this repo → ${existing.url}  (${existing.mode})`);
-        console.log('`marj stop` to shut it down, or `marj --force` to start another one');
+        const label = existing.session ? `session "${existing.session}"` : 'this repo';
+        console.log(`marj is already running for ${label} → ${existing.url}  (${existing.mode})`);
+        console.log('`marj stop` to shut it down, or `marj --session <name>` for an isolated one');
       }
       if (args.flags.open !== false) {
         const { default: open } = await import('open');
@@ -129,18 +165,22 @@ async function cmdServe(args: Args): Promise<void> {
     cwd: process.cwd(),
     positional,
     staged: args.flags.staged === true,
+    exact: args.flags.exact === true,
     port: args.flags.port ? num(args.flags.port, 4711) : undefined,
     host: typeof args.flags.host === 'string' ? args.flags.host : undefined,
     context: args.flags.context ? num(args.flags.context, 5) : undefined,
     stdinDiff,
     watch: args.flags.watch !== false,
+    session,
   });
 
   if (args.flags.json) {
     console.log(JSON.stringify(running.info));
   } else {
-    console.log(`marj → ${running.info.url}  (${running.info.mode})`);
-    console.log('comments land in your agent via `marj watch`; Ctrl-C to stop');
+    const tag = running.info.session ? `  [session ${running.info.session}]` : '';
+    console.log(`marj → ${running.info.url}  (${running.info.mode})${tag}`);
+    const watch = running.info.session ? `marj watch --session ${running.info.session}` : 'marj watch';
+    console.log(`comments land in your agent via \`${watch}\`; Ctrl-C to stop`);
   }
 
   if (args.flags.open !== false) {
@@ -202,9 +242,8 @@ async function cmdThreads(args: Args): Promise<void> {
     return;
   }
   for (const thread of filtered) {
-    const range = thread.startLine === thread.endLine ? `${thread.startLine}` : `${thread.startLine}-${thread.endLine}`;
     const last = thread.messages.at(-1);
-    console.log(`${thread.id.padEnd(5)} ${thread.status.padEnd(9)} ${thread.file}:${range}  (${thread.messages.length} msg)`);
+    console.log(`${thread.id.padEnd(5)} ${thread.status.padEnd(9)} ${whereIs(thread)}  (${thread.messages.length} msg)`);
     if (last) console.log(`      ${last.role}: ${last.body.replace(/\n/g, ' ').slice(0, 120)}`);
   }
 }
@@ -219,14 +258,14 @@ async function cmdShow(args: Args): Promise<void> {
     console.log(JSON.stringify({ thread, context }, null, 2));
     return;
   }
-  const range = thread.startLine === thread.endLine ? `${thread.startLine}` : `${thread.startLine}-${thread.endLine}`;
-  console.log(`${thread.id}  ${thread.file}:${range} (${thread.side} side, ${thread.status})\n`);
+  const side = isChat(thread) || isFileLevel(thread) ? '' : `${thread.side} side, `;
+  console.log(`${thread.id}  ${whereIs(thread)} (${side}${thread.status})\n`);
   for (const line of context.lines) {
     const marker = line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' ';
     const pointer = line.commented ? '>' : ' ';
     console.log(`${pointer}${String(line.no).padStart(5)} ${marker}${line.text}`);
   }
-  console.log('');
+  if (context.lines.length > 0) console.log('');
   for (const message of thread.messages) {
     const intent = message.intent ? ` asked for: ${message.intent}` : '';
     console.log(`--- ${message.role}${intent} (${message.createdAt}) ---`);
@@ -251,19 +290,25 @@ async function cmdReply(args: Args): Promise<void> {
 }
 
 async function cmdComment(args: Args): Promise<void> {
-  const [file, line, ...rest] = args.positional;
-  if (!file || !line) throw new Error('usage: marj comment <file> <line[-endLine]> <text>');
-  const [start, end] = line.split('-');
+  const [file, ...rest] = args.positional;
+  if (!file) throw new Error('usage: marj comment <file> [<line[-endLine]>] <text>');
+
+  // a leading "12" or "12-15" targets lines; anything else means the whole file
+  const lineArg = /^\d+(-\d+)?$/.test(rest[0] ?? '') ? rest.shift()! : null;
+  const [start, end] = lineArg ? lineArg.split('-').map(Number) : [FILE_LEVEL, FILE_LEVEL];
   const body = rest.length > 0 ? rest.join(' ') : await readStdin();
+  if (!body.trim()) throw new Error('empty comment');
+
   const client = await connect(args.flags);
   const thread = await client.comment({
     file,
     side: typeof args.flags.side === 'string' ? args.flags.side : 'new',
-    startLine: Number(start),
-    endLine: Number(end ?? start),
+    startLine: start,
+    endLine: end ?? start,
     body,
   });
-  console.log(args.flags.json ? JSON.stringify(thread) : `opened ${thread.id} on ${file}:${line}`);
+  const where = lineArg ? `${file}:${lineArg}` : `${file} (whole file)`;
+  console.log(args.flags.json ? JSON.stringify(thread) : `opened ${thread.id} on ${where}`);
 }
 
 async function cmdResolve(args: Args): Promise<void> {
@@ -284,11 +329,12 @@ async function cmdDelete(args: Args): Promise<void> {
 }
 
 async function cmdStop(args: Args): Promise<void> {
-  const info = await findServer(process.cwd(), args.flags.port ? num(args.flags.port, 0) : undefined);
+  const info = await findServer(process.cwd(), args.flags.port ? num(args.flags.port, 0) : undefined, sessionOf(args.flags));
   if (!info.pid) throw new Error('no pid recorded for the running server');
   process.kill(info.pid, 'SIGTERM');
-  await fs.rm(`${info.repoRoot}/.marj/server.json`, { force: true });
-  console.log(`stopped marj (pid ${info.pid})`);
+  await fs.rm(path.join(stateDir(info.repoRoot, normaliseSession(sessionOf(args.flags))), 'server.json'), { force: true });
+  const tag = info.session ? ` (session ${info.session})` : '';
+  console.log(`stopped marj${tag} (pid ${info.pid})`);
 }
 
 async function main(): Promise<void> {

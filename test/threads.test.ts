@@ -140,3 +140,35 @@ describe('deleting threads', () => {
     expect(store.remove('t99')).toBe(false);
   });
 });
+
+describe('file-level threads', () => {
+  it('keep line 0 on the thread and on the agent event', async () => {
+    const store = await ThreadStore.load(file);
+    const thread = store.createThread({ ...input, startLine: 0, endLine: 0, body: 'this file should be split' });
+    expect(thread.startLine).toBe(0);
+    expect(thread.endLine).toBe(0);
+    expect(store.queue()[0]).toMatchObject({ file: 'app.js', startLine: 0, endLine: 0 });
+  });
+});
+
+describe('review chat', () => {
+  it('is created on the first message and tags its events as chat', async () => {
+    const store = await ThreadStore.load(file);
+    expect(store.get('chat')).toBeUndefined();
+    store.addMessage('chat', 'user', 'what does this change do?');
+    const chat = store.get('chat');
+    expect(chat?.file).toBe('');
+    expect(chat?.messages).toHaveLength(1);
+    expect(store.queue()[0]).toMatchObject({ threadId: 'chat', kind: 'chat', intent: 'ask' });
+
+    store.addMessage('chat', 'agent', 'it adds a chat panel');
+    expect(store.queue()).toHaveLength(0);
+    expect(store.get('chat')?.status).toBe('answered');
+  });
+
+  it('never hands out the chat id to a line thread', async () => {
+    const store = await ThreadStore.load(file);
+    store.addMessage('chat', 'user', 'hi');
+    expect(store.createThread(input).id).toBe('t1');
+  });
+});
