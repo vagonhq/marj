@@ -51,7 +51,7 @@ Options
   --port <n>       (hub) preferred port when the hub is started (default 4711)
   --host <h>       (hub) bind address when the hub is started (default 127.0.0.1)
   --context <n>    diff context lines (default 5)
-  --no-open        do not open a browser
+  --no-open        do not open a browser (--json implies this; --open forces it)
   --force          a second, isolated review of a repo already under review
   --no-watch       do not refresh when files change
   --json           machine readable output
@@ -177,6 +177,10 @@ async function cmdServe(args: Args): Promise<void> {
     if (running.hubSpawned) {
       console.log(`hub started in the background at ${info.url.replace(/\/r\/.*$/, '')} — every repo shares it; \`marj stop --all\` shuts it down`);
     }
+    if (running.hubUpgraded) {
+      const { from, to, carried } = running.hubUpgraded;
+      console.log(`hub upgraded ${from} → ${to}; ${carried} other review${carried === 1 ? '' : 's'} carried over`);
+    }
     if (running.hubOutdated) {
       const { hubVersion, cliVersion } = running.hubOutdated;
       console.log(`note: the hub is marj ${hubVersion} but this is ${cliVersion}; other repos are on it, so it was left running. \`marj stop --all\` then \`marj\` upgrades it.`);
@@ -184,7 +188,10 @@ async function cmdServe(args: Args): Promise<void> {
     console.log(`comments reach your agent via \`marj watch${sess}\`; \`marj stop${sess}\` ends this review`);
   }
 
-  if (args.flags.open !== false) {
+  // --json means an agent is driving and will open the URL itself; a human gets the browser.
+  // --open forces it either way, --no-open suppresses it either way.
+  const wantOpen = args.flags.open === true || (args.flags.open !== false && args.flags.json !== true);
+  if (wantOpen) {
     const { default: open } = await import('open');
     await open(info.url).catch(() => {});
   }
@@ -200,6 +207,7 @@ async function cmdHub(args: Args): Promise<void> {
   });
   console.log(`marj hub → ${info.url}  (pid ${info.pid}); run \`marj\` inside a repo to add it`);
   const shutdown = async () => {
+    setTimeout(() => process.exit(0), 3000).unref(); // never hang an upgrade on a stuck socket
     await close();
     process.exit(0);
   };

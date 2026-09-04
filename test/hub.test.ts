@@ -83,6 +83,13 @@ describe('the hub', () => {
     expect(fromFe.find((s) => s.current)?.id).toBe(id);
   });
 
+  it('lists its registrations so an upgrading CLI can replay them', async () => {
+    const regs = (await (await fetch(`${hub.info.url}/api/repos`)).json()) as { id: string; cwd: string; positional: string[]; session?: string }[];
+    expect(regs.map((r) => r.cwd).sort()).toEqual([backend, frontend, frontend].sort());
+    expect(regs.find((r) => r.session === 's2')?.cwd).toBe(frontend);
+    for (const r of regs) expect(Array.isArray(r.positional)).toBe(true);
+  });
+
   it('unregisters a repo and 404s its api afterwards', async () => {
     const before = (await (await fetch(`${hub.info.url}/api/hub`)).json()) as { repos: string[] };
     const id = before.repos.find((r) => r.startsWith('backend'))!;

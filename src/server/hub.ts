@@ -87,6 +87,8 @@ export async function findLiveHub(): Promise<HubInfo | null> {
 export async function startHub(opts: HubOptions = {}): Promise<{ info: HubInfo; close: () => Promise<void> }> {
   const host = opts.host ?? '127.0.0.1';
   const contexts = new Map<string, RepoContext>();
+  /** how each review was asked for, so a newer marj can restart this hub and put them all back */
+  const registrations = new Map<string, RegisterRequest>();
   let info!: HubInfo;
 
   const listServers = (currentId: string | null) =>
@@ -99,6 +101,11 @@ export async function startHub(opts: HubOptions = {}): Promise<{ info: HubInfo; 
   });
 
   app.get('/api/servers', async (_req, res) => res.json(await listServers(null)));
+
+  /** Every registration as it was made — what an upgrading CLI replays into the new hub. */
+  app.get('/api/repos', (_req, res) => {
+    res.json([...registrations.entries()].map(([id, reg]) => ({ id, ...reg })));
+  });
 
   app.post('/api/repos', express.json({ limit: '16mb' }), async (req, res) => {
     const body = (req.body ?? {}) as RegisterRequest;
@@ -138,6 +145,7 @@ export async function startHub(opts: HubOptions = {}): Promise<{ info: HubInfo; 
         listServers: (current) => listServers(current),
       });
       contexts.set(id, ctx);
+      registrations.set(id, { ...body, session: session ?? undefined, force: false });
       const serverInfo = describe(ctx, false);
       await fs.writeFile(path.join(stateDir(repoRoot, session), 'server.json'), JSON.stringify(serverInfo, null, 2));
       res.status(201).json(serverInfo);
@@ -203,6 +211,7 @@ export async function startHub(opts: HubOptions = {}): Promise<{ info: HubInfo; 
 
   async function unregister(ctx: RepoContext): Promise<void> {
     contexts.delete(ctx.id);
+    registrations.delete(ctx.id);
     await ctx.close();
     await fs.rm(path.join(stateDir(ctx.repoRoot, ctx.session), 'server.json'), { force: true });
   }
@@ -211,7 +220,11 @@ export async function startHub(opts: HubOptions = {}): Promise<{ info: HubInfo; 
   const close = () =>
     (closing ??= (async () => {
       for (const ctx of [...contexts.values()]) await unregister(ctx);
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        // keep-alive sockets (browsers, the CLI's fetch) would otherwise hold close() open for seconds
+        server.closeAllConnections();
+      });
       // only remove the file if it is still ours
       try {
         const current = JSON.parse(await fs.readFile(HUB_FILE, 'utf8')) as HubInfo;

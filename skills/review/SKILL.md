@@ -42,7 +42,7 @@ cd <repo root> && marj --json --no-open        # prints {"url":"http://127.0.0.1
 
 It returns at once: the first `marj` starts a small background **hub** (one process, one port for
 every repo) and registers this repo with it; later ones just register. No `run_in_background`
-needed — read `url` from the output and open it:
+needed. `--json` never opens a browser itself — **you** open the `url` exactly once:
 
 ```bash
 open <url>            # macOS; xdg-open elsewhere
