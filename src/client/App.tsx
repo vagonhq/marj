@@ -16,6 +16,7 @@ import { api, subscribe } from './api.js';
 import { ChatPanel } from './components/ChatPanel.js';
 import { FileCard } from './components/FileCard.js';
 import { FileTree } from './components/FileTree.js';
+import { PrSearch } from './components/PrSearch.js';
 import { RepoSwitcher } from './components/RepoSwitcher.js';
 import { Toasts, type Toast } from './components/Toasts.js';
 import { UncommittedSection } from './components/UncommittedSection.js';
@@ -396,6 +397,7 @@ export function App() {
           <RepoSwitcher name={repoName || '…'} repoRoot={diff?.repoRoot} />
           <span className="crumb-sep">/</span>
           <span className="mode">{diff?.mode ?? 'loading'}</span>
+          <PrSearch cwd={diff?.repoRoot} />
           <span className={`live${pulse ? ' pulse' : ''}`} title="live — the diff refreshes as files change" />
           <span className="spacer" />
           {pending > 0 && <span className="label accent large">{pending} waiting on Claude</span>}
