@@ -1,6 +1,6 @@
 {
   "name": "@vagonhq/marj",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Make Claude's memory an expansion of your memory. Local git diff review in your browser — comment on a line, your running Claude Code session answers inline and can fix the code.",
   "keywords": [
     "git",
