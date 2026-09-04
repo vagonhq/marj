@@ -97,6 +97,8 @@ marj never commits or pushes on its own; only when you click or ask.
 
 🔀 **Pull requests & merge-base diffs.** A branch that hasn't been rebased shows only *its* commits, not everything that landed on `develop` since — because two revisions are compared from their merge base, exactly like a PR. Paste a PR URL and marj fetches it, asks `gh` for the base and title, and reviews it like the PR page. Reviewing the branch you're **on** (`/marj:review develop`) diffs against the working tree, so it shows the whole branch *and* any uncommitted edit — a **Comment & fix** appears live, no commit or refresh.
 
+🔍 **Find a pull request from the header.** The **PRs** button lists this repo's open pull requests; type to search every state through GitHub's own syntax (`login`, `author:me`, `1921`). Picking one opens it as its own review session, so whatever you were reviewing keeps its threads and its URL. Needs `gh` on your PATH — the same CLI marj already uses to read a PR.
+
 📝 **Uncommitted changes, ready to commit.** Every fix lands in your local repo as a plain uncommitted edit — no worktree, no copy. A section at the top lists exactly what's not committed yet (HEAD → working tree, untracked included), badges the files changed during this review, folds pre-existing local edits, and lets you **Commit** or **Commit & push** with a message — or **Ask Claude to commit & push** and let it write the message (`/marj:commit` does the same). If you're on a different branch than the one you're reviewing, it says so and offers to switch, so a fix never lands in the wrong place.
 
 🪟 **Panels your way.** Drag the file tree and the chat to any width, hide the file tree with `b` (chat toggles from its button), flip unified/split with `u`, mark files **Viewed** to fold them away.
@@ -165,6 +167,7 @@ Bound to `127.0.0.1` only. One hub serves every review; a review's routes are pr
 | `POST /api/commit` | `message`, optional `paths`, `push` — commit (and push) the working tree |
 | `POST /api/checkout` | switch the working tree to the branch under review |
 | `POST /api/reload` | fetch from the remote (and a PR head) then recompute |
+| `GET /api/prs?q=` | this repo's pull requests matching `q`, for the header's PR picker (needs `gh`) |
 
 ## Options
 
