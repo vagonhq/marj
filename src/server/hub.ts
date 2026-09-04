@@ -7,6 +7,7 @@ import { createRepoContext, type RepoContext } from './context.js';
 import { GitError, repoRootOf } from './git.js';
 import { discoverServers } from './registry.js';
 import { MARJ_HOME, migrateLegacyState, normaliseSession, repoStateBase, stateDir } from './state.js';
+import { VERSION } from './version.js';
 import type { ServerInfo } from '../shared/types.js';
 
 const CLIENT_DIR = fileURLToPath(new URL('../../client', import.meta.url));
@@ -19,6 +20,8 @@ export interface HubInfo {
   port: number;
   pid: number;
   startedAt: string;
+  /** marj version the hub process runs */
+  version: string;
 }
 
 export interface HubOptions {
@@ -92,7 +95,7 @@ export async function startHub(opts: HubOptions = {}): Promise<{ info: HubInfo; 
   const app = express();
 
   app.get('/api/hub', (_req, res) => {
-    res.json({ pid: process.pid, url: info.url, repos: [...contexts.keys()] });
+    res.json({ pid: process.pid, url: info.url, version: VERSION, repos: [...contexts.keys()] });
   });
 
   app.get('/api/servers', async (_req, res) => res.json(await listServers(null)));
@@ -178,7 +181,7 @@ export async function startHub(opts: HubOptions = {}): Promise<{ info: HubInfo; 
 
   const server = http.createServer(app);
   const port = await listenFrom(server, host, opts.port ?? 4711);
-  info = { url: `http://${host}:${port}`, host, port, pid: process.pid, startedAt: new Date().toISOString() };
+  info = { url: `http://${host}:${port}`, host, port, pid: process.pid, startedAt: new Date().toISOString(), version: VERSION };
   await fs.mkdir(MARJ_HOME, { recursive: true });
   await fs.writeFile(HUB_FILE, JSON.stringify(info, null, 2));
 

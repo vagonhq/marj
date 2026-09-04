@@ -172,6 +172,10 @@ async function cmdServe(args: Args): Promise<void> {
     if (running.hubSpawned) {
       console.log(`hub started in the background at ${info.url.replace(/\/r\/.*$/, '')} — every repo shares it; \`marj stop --all\` shuts it down`);
     }
+    if (running.hubOutdated) {
+      const { hubVersion, cliVersion } = running.hubOutdated;
+      console.log(`note: the hub is marj ${hubVersion} but this is ${cliVersion}; other repos are on it, so it was left running. \`marj stop --all\` then \`marj\` upgrades it.`);
+    }
     console.log(`comments reach your agent via \`marj watch${sess}\`; \`marj stop${sess}\` ends this review`);
   }
 

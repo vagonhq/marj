@@ -3,8 +3,9 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GitError, repoRootOf } from './git.js';
-import { findLiveHub, type HubInfo, type RegisterRequest, type RegisterResponse } from './hub.js';
+import { contextId, findLiveHub, type HubInfo, type RegisterRequest, type RegisterResponse } from './hub.js';
 import { MARJ_HOME, normaliseSession, stateDir } from './state.js';
+import { VERSION } from './version.js';
 import type { ServerInfo } from '../shared/types.js';
 
 export * from './state.js';
@@ -35,6 +36,8 @@ export interface RunningServer {
   info: RegisterResponse;
   /** true when this call had to start the hub daemon */
   hubSpawned: boolean;
+  /** set when an older hub kept running because other repos are on it; tells the user how to upgrade */
+  hubOutdated?: { hubVersion: string; cliVersion: string };
   /** unregister this repo from the hub */
   close: () => Promise<void>;
 }
@@ -68,10 +71,46 @@ export async function findLiveServer(repoRoot: string, session: string | null = 
 const CLI_ENTRY = fileURLToPath(new URL('../cli/index.js', import.meta.url));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** The running hub, starting it as a detached daemon when there is none. */
-export async function ensureHub(opts: { port?: number; host?: string } = {}): Promise<{ hub: HubInfo; spawned: boolean }> {
+/** What the live hub says about itself; null when it does not answer. */
+async function hubStatus(hub: HubInfo): Promise<{ version: string; repos: string[] } | null> {
+  try {
+    const res = await fetch(`${hub.url}/api/hub`, { signal: AbortSignal.timeout(1500) });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { version?: string; repos?: string[] };
+    return { version: body.version ?? '0.0.0', repos: body.repos ?? [] };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The running hub, starting it as a detached daemon when there is none.
+ *
+ * The hub outlives CLI runs, so after an upgrade a newer `marj` can meet an
+ * older hub. If nothing else is registered on it (or only this repo), it is
+ * restarted so the upgrade takes effect; otherwise it is left alone and the
+ * caller gets `outdated` to warn with.
+ */
+export async function ensureHub(
+  opts: { port?: number; host?: string; onlyRepoId?: string } = {},
+): Promise<{ hub: HubInfo; spawned: boolean; outdated?: { hubVersion: string; cliVersion: string } }> {
   const live = await findLiveHub();
-  if (live) return { hub: live, spawned: false };
+  if (live) {
+    const status = await hubStatus(live);
+    const hubVersion = status?.version ?? live.version ?? '0.0.0';
+    if (hubVersion === VERSION) return { hub: live, spawned: false };
+    const others = (status?.repos ?? []).filter((id) => id !== opts.onlyRepoId && !id.startsWith(`${opts.onlyRepoId}~`));
+    if (others.length > 0) {
+      return { hub: live, spawned: false, outdated: { hubVersion, cliVersion: VERSION } };
+    }
+    // idle (or just us): swap the old process for this version
+    try {
+      process.kill(live.pid, 'SIGTERM');
+    } catch {
+      /* already gone */
+    }
+    for (let i = 0; i < 50 && (await findLiveHub()); i++) await sleep(100);
+  }
 
   await fs.mkdir(MARJ_HOME, { recursive: true });
   const logPath = path.join(MARJ_HOME, 'hub.log');
@@ -98,7 +137,11 @@ export async function ensureHub(opts: { port?: number; host?: string } = {}): Pr
  */
 export async function startServer(opts: StartOptions): Promise<RunningServer> {
   const repoRoot = await repoRootOf(opts.cwd); // throws GitError outside a repo
-  const { hub, spawned } = await ensureHub({ port: opts.port, host: opts.host });
+  const { hub, spawned, outdated } = await ensureHub({
+    port: opts.port,
+    host: opts.host,
+    onlyRepoId: contextId(repoRoot, normaliseSession(opts.session)),
+  });
 
   const body: RegisterRequest = {
     cwd: opts.cwd,
@@ -124,6 +167,7 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   return {
     info,
     hubSpawned: spawned,
+    ...(outdated ? { hubOutdated: outdated } : {}),
     close: async () => {
       await fetch(`${hub.url}/api/repos/${encodeURIComponent(info.id)}`, { method: 'DELETE' }).catch(() => {});
     },
