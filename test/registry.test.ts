@@ -41,15 +41,16 @@ afterAll(async () => {
 });
 
 describe('discoverServers', () => {
-  it('lists live reviews from the hub and stopped repos from disk, current first', async () => {
+  it('lists live reviews from the hub and stopped repos from disk, alphabetically', async () => {
     const live = new Map<string, RepoContext>([
       ['frontend-aaaa', fakeContext('frontend-aaaa', '/w/frontend', null, 'working tree vs HEAD')],
     ]);
     const list = await discoverServers({ live, hubUrl: 'http://127.0.0.1:4711', currentId: 'frontend-aaaa' });
     const keys = list.map((s) => `${s.name}${s.session ? `@${s.session}` : ''}:${s.live ? 'live' : 'dead'}${s.current ? ':current' : ''}`);
-    expect(keys).toEqual(['frontend:live:current', 'backend:dead', 'backend@pr-42:dead']);
+    // alphabetical, the current one marked in place rather than hoisted
+    expect(keys).toEqual(['backend:dead', 'backend@pr-42:dead', 'frontend:live:current']);
 
-    const fe = list[0];
+    const fe = list.find((s) => s.name === 'frontend')!;
     expect(fe.id).toBe('frontend-aaaa');
     expect(fe.url).toBe('http://127.0.0.1:4711/r/frontend-aaaa/');
     expect(fe.mode).toBe('working tree vs HEAD');

@@ -98,12 +98,7 @@ export async function discoverServers(input: {
     }
   }
 
-  // the one you're on first, then running reviews, then the rest, alphabetical
-  return out.sort(
-    (a, b) =>
-      Number(b.current) - Number(a.current) ||
-      Number(b.live) - Number(a.live) ||
-      a.name.localeCompare(b.name) ||
-      (a.session ?? '').localeCompare(b.session ?? ''),
-  );
+  // plain alphabetical, so a repo is always where you expect it; the current one
+  // is marked, not moved, and a repo's sessions follow it
+  return out.sort((a, b) => a.name.localeCompare(b.name) || (a.session ?? '').localeCompare(b.session ?? ''));
 }
