@@ -217,13 +217,13 @@ lines; answer each once, in the same thread.
 
 ## 5. Several repos at once
 
-Each repo gets its own server (its own port, its own `.marj/`), so you can review two
+Each repo gets its own server (its own port, its own state folder under `~/.marj/repos/`), so you can review two
 workspaces side by side: start `marj` in each and arm **one Monitor per repo**. Give each
 watch a description naming the repo — `marj comments (vagon-core)` — because notifications
 from both land in the same conversation and the thread ids (`t1`, `t2`) repeat across repos.
 
 Every follow-up command must run in that repo's directory, since the CLI finds the server
-through `.marj/server.json` under the repo root:
+through the repo's state folder (`~/.marj/repos/<repo>-<hash>/server.json`), derived from the repo path:
 
 ```bash
 cd /path/to/repo-a && marj show t3
@@ -245,5 +245,5 @@ Give the Monitor a description naming the session so its notifications are disti
 
 ## 6. Finish
 
-`marj stop` shuts the server down. The threads stay in `.marj/threads.json`, so a later
+`marj stop` shuts the server down. The threads stay in `~/.marj/repos/<repo>-<hash>/threads.json` — outside the repo — so a later
 `marj` in the same repo brings the whole conversation back.

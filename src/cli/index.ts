@@ -2,7 +2,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { findLiveServer, GitError, MARJ_DIR, normaliseSession, startServer, stateDir } from '../server/index.js';
+import { findLiveServer, GitError, LEGACY_DIR, MARJ_HOME, normaliseSession, repoStateBase, startServer, stateDir } from '../server/index.js';
 import { repoRootOf } from '../server/git.js';
 import { findServer, MarjClient, NoServerError } from './api.js';
 import { describeTarget, FILE_LEVEL, isChat, isFileLevel, type AgentEvent, type Thread } from '../shared/types.js';
@@ -23,7 +23,7 @@ Usage
   marj stop                       stop the running server
   marj commit -m <msg> [--push] [path...]   commit the uncommitted changes (all, or just these paths)
   marj reload                     sync from the remote (fetch, re-pull a PR) and refresh the diff
-  marj reset                      stop every server for this repo and delete all threads/chat (.marj)
+  marj reset                      stop every server for this repo and delete all its threads/chat
 
 Sessions (independent reviews in the same repo)
   marj --session <name>           start an isolated server: its own threads, chat and port
@@ -52,6 +52,8 @@ Options
   --json           machine readable output
   --pending        (threads) only unanswered threads
   --session <name> (any command) target an isolated review, not the default one
+
+State lives outside the repo, in ~/.marj/repos/<repo>-<hash>/ (override the root with MARJ_HOME).
   --resolve        (reply) mark the thread resolved afterwards
   --typing         (reply) only flip the "Claude is typing" indicator
   --push           (commit) push after committing (publishes the branch if it has no upstream)
@@ -401,7 +403,7 @@ async function waitForExit(pid: number, ms: number): Promise<void> {
 
 async function cmdReset(args: Args): Promise<void> {
   const repoRoot = await repoRootOf(process.cwd());
-  const marjDir = `${repoRoot}/${MARJ_DIR}`;
+  const marjDir = repoStateBase(repoRoot);
 
   // collect the default server and every session server, kill them all
   const infoPaths = [`${marjDir}/server.json`];
@@ -430,9 +432,11 @@ async function cmdReset(args: Args): Promise<void> {
   // let them flush and exit before we delete, so a late save can't recreate state
   await Promise.all(pids.map((pid) => waitForExit(pid, 2000)));
   await fs.rm(marjDir, { recursive: true, force: true });
+  // and any folder an older marj left inside the repo
+  await fs.rm(path.join(repoRoot, LEGACY_DIR), { recursive: true, force: true });
 
-  if (args.flags.json) console.log(JSON.stringify({ reset: true, stopped: pids.length }));
-  else console.log(`reset marj: stopped ${pids.length} server${pids.length === 1 ? '' : 's'} and cleared ${MARJ_DIR}/`);
+  if (args.flags.json) console.log(JSON.stringify({ reset: true, stopped: pids.length, cleared: marjDir }));
+  else console.log(`reset marj: stopped ${pids.length} server${pids.length === 1 ? '' : 's'} and cleared ${marjDir}`);
 }
 
 async function main(): Promise<void> {

@@ -16,7 +16,7 @@ Comment on a line. Claude answers **in that thread**, fixes the code if you aske
 ```
 ┌──────────────────────┐   comment    ┌───────────────┐   COMMENT t3 …   ┌──────────────┐
 │  browser (localhost) │ ───────────► │  marj server  │ ───────────────► │  your Claude │
-│  GitHub-style diff   │ ◄─────────── │  .marj/*.json │ ◄─────────────── │  Code session│
+│  GitHub-style diff   │ ◄─────────── │ ~/.marj/…json │ ◄─────────────── │  Code session│
 └──────────────────────┘  reply (SSE) └───────────────┘   marj reply     └──────────────┘
 ```
 
@@ -57,13 +57,13 @@ The plugin adds four commands:
 | `/marj:review [target]` | start (or reuse) the review server, open the browser, watch for your comments |
 | `/marj:commit` | Claude writes a commit message from the diff, commits the review's fixes and pushes |
 | `/marj:reload` | fetch from the remote (re-pull a PR head) and refresh the diff, keeping every thread |
-| `/marj:reset` | stop every marj server for the repo, wipe all threads and chat, start clean |
+| `/marj:reset` | stop every marj server for the repo, wipe all its threads and chat, start clean |
 
 ### Where to run it
 
 marj works on a **local clone**. Open Claude Code (or run `marj`) anywhere inside the repo — any
 subdirectory is fine, marj finds the git root itself — and it reviews that repo. Git worktrees
-work the same way: each worktree is its own root with its own `.marj/`.
+work the same way: each worktree is its own root with its own state folder.
 
 If Claude Code offers to work in an isolated worktree, say no during a review: marj watches the
 checkout it was started in, and a fix made in a worktree never reaches the diff. `git worktree
@@ -87,7 +87,7 @@ marj never commits or pushes on its own; only when you click or ask.
 
 🗨️ **A real conversation, in the diff.** Hover a line and hit `+`, or drag down the gutter to select a range — exactly like GitHub. Send it as **Comment** (`⌘↵`, Claude answers and leaves the code alone) or **Comment & fix** (`⌘⇧↵`, Claude makes the change, then tells you what it did). The choice travels with the message, so nothing is left to guesswork.
 
-🧵 **Threads that follow the code.** The diff live-refreshes as files change, and every thread re-anchors to the line it was written against — even after Claude rewrites that line. Threads live in `.marj/threads.json`, so closing the server never loses the conversation.
+🧵 **Threads that follow the code.** The diff live-refreshes as files change, and every thread re-anchors to the line it was written against — even after Claude rewrites that line. Threads live in `~/.marj/repos/<repo>-<hash>/threads.json` — outside your repo, nothing added to it — so closing the server never loses the conversation.
 
 📄 **Comment on a whole file,** not just a line — for "split this up" or "why does this exist?". The thread sits above the diff and stays put no matter how the lines move.
 
@@ -126,7 +126,7 @@ marj reset                  # /marj:reset  — stop every server and wipe .marj 
 
 ## Several reviews at once
 
-Every repo runs its own server (the port walks up from 4711, state lives in that repo's `.marj/`). Running `marj` twice in the same repo reuses the running one instead of duplicating it.
+Every repo runs its own server (the port walks up from 4711; state lives outside the repo in `~/.marj/repos/<repo>-<hash>/`, keyed by the clone's path). Running `marj` twice in the same repo reuses the running one instead of duplicating it.
 
 To review two things side by side — a second branch, a PR, a clean slate — start an **isolated session** with its own threads, chat and port. It shares nothing, and starting one never stops the others:
 
@@ -162,13 +162,16 @@ Bound to `127.0.0.1` only.
 
 ```
 --exact          compare two revisions tip to tip instead of from their merge base
---session <name> an isolated review with its own .marj/sessions/<name>/ state
+--session <name> an isolated review with its own sessions/<name>/ state
 --port <n>       preferred port (default 4711, walks up if taken)
 --host <h>       bind address (default 127.0.0.1)
 --context <n>    diff context lines (default 5)
 --no-open        do not open a browser
 --no-watch       do not refresh when files change
 --json           machine readable output
+
+State lives outside the repo in ~/.marj/repos/<repo>-<hash>/ (override the root with MARJ_HOME).
+An older <repo>/.marj folder is moved there automatically on the next start.
 
 Per command:
 --push           (commit) push after committing; publishes the branch if it has no upstream

@@ -7,9 +7,9 @@ argument-hint: "[revision | a..b | PR url | --staged]"
 # marj reset
 
 Reset clears **all** review state for the current repo — every thread, the chat, and any
-isolated sessions — and starts a clean review.
+isolated sessions (kept in `~/.marj/repos/<repo>-<hash>/`, outside the repo) — and starts a clean review.
 
-This throws away the whole conversation in `.marj/`. It cannot be undone. If the user only
+This throws away the whole conversation. It cannot be undone. If the user only
 wants to drop a few threads, use `marj delete <id>…` instead; reset is the whole-repo wipe.
 
 ## Steps
@@ -20,7 +20,8 @@ wants to drop a few threads, use `marj delete <id>…` instead; reset is the who
    cd <repo root> && marj reset
    ```
 
-   This stops the default server and every session server, then deletes `.marj/`.
+   This stops the default server and every session server, then deletes the repo's state folder
+   (and any old `<repo>/.marj` left by earlier versions).
 
 2. Start a clean review again, exactly like `/marj:review` — same target the user gives you
    (default is the working tree):
