@@ -15,5 +15,4 @@ if [ -x "$installed" ] && [ "$installed" != "${BASH_SOURCE[0]}" ]; then
   exec "$installed" "$@"
 fi
 
-# "--" so npm does not swallow flags it also knows (--json, --version, ...)
-exec npx -y @vagonhq/marj@latest -- "$@"
+exec npx -y @vagonhq/marj@latest "$@"

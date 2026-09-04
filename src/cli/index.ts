@@ -64,7 +64,7 @@ State lives outside the repo, in ~/.marj/repos/<repo>-<hash>/ (override the root
   --push           (commit) push after committing (publishes the branch if it has no upstream)
   --cursor <n>     (watch) resume from a sequence number
   --no-catch-up    (watch) skip comments that arrived before the watch started
-  -v, --version    print marj's version (and the running hub's, if it differs)
+  -v, --version    print marj's version (and the running hub's, if it differs); \`marj version\` also works
   -h, --help       this text
 `;
 
@@ -79,6 +79,8 @@ function parseArgs(argv: string[]): Args {
   const positional: string[] = [];
   const withValue = new Set(['port', 'host', 'context', 'cursor', 'side', 'timeout', 'session', 'message']);
 
+  // `npx pkg -- args` hands the literal `--` on to us; a leading one is not ours
+  if (argv[0] === '--') argv = argv.slice(1);
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--') {

@@ -132,7 +132,7 @@ marj reset                  # /marj:reset  — stop every server and wipe .marj 
 
 `marj stop` ends one repo's review; when the last one ends, the hub exits on its own. `marj stop --all` shuts everything down at once. The hub's log is `~/.marj/hub.log`.
 
-**Which version am I on?** The header shows it next to the logo (`v0.1.4`), and `marj --version` prints the CLI's version plus the running hub's when they differ. Plugin users always get the latest release on the next `marj` start (via `npx @latest`, a few minutes after publish); a hub left running from an older version is restarted automatically when nothing else is on it, otherwise `marj stop --all` then `marj`.
+**Which version am I on?** The header shows it next to the logo (`v0.1.4`), and `marj version` (or `marj --version`) prints the CLI's version plus the running hub's when they differ. Plugin users always get the latest release on the next `marj` start (via `npx @latest`, a few minutes after publish); a hub left running from an older version is restarted automatically when nothing else is on it, otherwise `marj stop --all` then `marj`.
 
 To review two things side by side — a second branch, a PR, a clean slate — start an **isolated session** with its own threads, chat and port. It shares nothing, and starting one never stops the others:
 
