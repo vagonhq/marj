@@ -2,7 +2,7 @@
   "name": "marj",
   "displayName": "marj — review local diffs with Claude in the thread",
   "description": "Make Claude's memory an expansion of your memory. GitHub-style review UI for your local git changes. Comment on a line in the browser; this Claude Code session answers in the thread and, when asked, fixes the code. Adds the /marj:review, /marj:commit, /marj:reload and /marj:reset skills and the `marj` command.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": {
     "name": "Sezer İstif",
     "url": "https://github.com/sezeristif"
