@@ -22,6 +22,7 @@ import {
   worktreeTarget,
   type DiffTarget,
 } from './git.js';
+import { discoverServers } from './registry.js';
 import { ThreadStore } from './threads.js';
 import { startWatcher } from './watch.js';
 import { FILE_LEVEL, type DiffFile, type DiffPayload, type ServerEvent, type ServerInfo, type WorktreeState } from '../shared/types.js';
@@ -141,6 +142,8 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   await migrateLegacyState(repoRoot);
   const marjDir = stateDir(repoRoot, session);
   await fs.mkdir(marjDir, { recursive: true });
+  // remembered even after the server stops, so the repo switcher can still list this repo
+  await fs.writeFile(path.join(repoStateBase(repoRoot), 'repo.json'), JSON.stringify({ repoRoot }, null, 2));
 
   const store = await ThreadStore.load(path.join(marjDir, 'threads.json'));
   /** files modified after this are the fixes of this review, not pre-existing local edits */
@@ -359,6 +362,11 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     } catch (err) {
       res.status(400).json({ error: (err as Error).message });
     }
+  });
+
+  /** Every repo/worktree marj knows, with its running server, for the switcher in the header. */
+  app.get('/api/servers', async (_req, res) => {
+    res.json(await discoverServers({ repoRoot, session }));
   });
 
   /** Sync from the remote (fetch, plus a PR head re-fetch) then recompute. */

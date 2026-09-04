@@ -229,6 +229,9 @@ through the repo's state folder (`~/.marj/repos/<repo>-<hash>/server.json`), der
 cd /path/to/repo-a && marj show t3
 ```
 
+In the browser, the repo name at the top left is a menu of every repo/worktree with a marj server,
+so the user can hop between them; you only need to make sure each has its own server and watch.
+
 Starting a second `marj` in a repo that already has one reuses it and prints the running URL.
 For a genuinely separate review in the same repo (a second branch, a PR, a fresh chat), start an
 **isolated session** — its own threads, chat and port, nothing shared, and it never stops the

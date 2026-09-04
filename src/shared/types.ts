@@ -177,6 +177,24 @@ export interface WorktreeState {
   version: number;
 }
 
+/** One marj server (or a repo with saved reviews but no server), for the repo switcher. */
+export interface ServerListing {
+  /** repo folder name, e.g. "vagon-frontend" or a worktree's folder */
+  name: string;
+  repoRoot: string;
+  /** the isolated session, if any */
+  session: string | null;
+  /** what it is reviewing, e.g. "develop...feature (working tree)"; empty when not running */
+  mode: string;
+  /** browser URL when a server is up */
+  url: string | null;
+  live: boolean;
+  /** the server the browser is talking to right now */
+  current: boolean;
+  /** git branch checked out there, when known */
+  branch: string | null;
+}
+
 export type ServerEvent =
   | { type: 'diff:changed'; version: number }
   | { type: 'threads:changed'; cursor: number }

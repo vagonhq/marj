@@ -128,6 +128,8 @@ marj reset                  # /marj:reset  — stop every server and wipe .marj 
 
 Every repo runs its own server (the port walks up from 4711; state lives outside the repo in `~/.marj/repos/<repo>-<hash>/`, keyed by the clone's path). Running `marj` twice in the same repo reuses the running one instead of duplicating it.
 
+**Switching between them:** the repo name at the top left is a menu of every repo and worktree marj knows about — frontend, backend, a worktree of either. Pick one and the tab jumps to that repo's server, showing only its diff. Repos with saved reviews but no running server are listed greyed out, so you can see where to start `marj`.
+
 To review two things side by side — a second branch, a PR, a clean slate — start an **isolated session** with its own threads, chat and port. It shares nothing, and starting one never stops the others:
 
 ```bash

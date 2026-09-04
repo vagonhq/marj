@@ -16,6 +16,7 @@ import { api, subscribe } from './api.js';
 import { ChatPanel } from './components/ChatPanel.js';
 import { FileCard } from './components/FileCard.js';
 import { FileTree } from './components/FileTree.js';
+import { RepoSwitcher } from './components/RepoSwitcher.js';
 import { Toasts, type Toast } from './components/Toasts.js';
 import { UncommittedSection } from './components/UncommittedSection.js';
 import type { DraftTarget } from './components/types.js';
@@ -388,9 +389,7 @@ export function App() {
             marj
           </span>
           <span className="crumb-sep">/</span>
-          <span className="repo" title={diff?.repoRoot}>
-            {repoName || '…'}
-          </span>
+          <RepoSwitcher name={repoName || '…'} repoRoot={diff?.repoRoot} />
           <span className="crumb-sep">/</span>
           <span className="mode">{diff?.mode ?? 'loading'}</span>
           <span className={`live${pulse ? ' pulse' : ''}`} title="live — the diff refreshes as files change" />
