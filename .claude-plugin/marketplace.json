@@ -9,7 +9,7 @@
       "name": "marj",
       "source": "./",
       "description": "Review local git changes in a GitHub-style UI and talk to this Claude Code session line by line. Needs Node ≥ 20; the CLI itself is fetched from npm on first use.",
-      "version": "0.1.3"
+      "version": "0.1.4"
     }
   ]
 }
