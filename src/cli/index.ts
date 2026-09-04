@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { findLiveHub, GitError, LEGACY_DIR, normaliseSession, repoStateBase, startServer, stateDir } from '../server/index.js';
+import { VERSION } from '../server/version.js';
 import { repoRootOf } from '../server/git.js';
 import { findServer, MarjClient, NoServerError } from './api.js';
 import { describeTarget, FILE_LEVEL, isChat, isFileLevel, type AgentEvent, type Thread } from '../shared/types.js';
@@ -63,6 +64,7 @@ State lives outside the repo, in ~/.marj/repos/<repo>-<hash>/ (override the root
   --push           (commit) push after committing (publishes the branch if it has no upstream)
   --cursor <n>     (watch) resume from a sequence number
   --no-catch-up    (watch) skip comments that arrived before the watch started
+  -v, --version    print marj's version (and the running hub's, if it differs)
   -h, --help       this text
 `;
 
@@ -91,11 +93,12 @@ function parseArgs(argv: string[]): Args {
       continue;
     }
     if (arg === '-h') { flags.help = true; continue; }
+    if (arg === '-v' || arg === '-V') { flags.version = true; continue; }
     if (arg === '-m') { flags.message = argv[++i] ?? ''; continue; }
     positional.push(arg);
   }
 
-  const commands = new Set(['watch', 'threads', 'show', 'reply', 'comment', 'resolve', 'delete', 'stop', 'commit', 'reload', 'reset', 'hub', 'serve']);
+  const commands = new Set(['watch', 'threads', 'show', 'reply', 'comment', 'resolve', 'delete', 'stop', 'commit', 'reload', 'reset', 'hub', 'version', 'serve']);
   const command = commands.has(positional[0]) ? positional.shift()! : 'serve';
   return { command, positional, flags };
 }
@@ -423,8 +426,36 @@ async function cmdReset(args: Args): Promise<void> {
   else console.log(`reset marj: ended ${stopped} review${stopped === 1 ? '' : 's'} and cleared ${base}`);
 }
 
+/** `marj --version`: this CLI's version, plus the running hub's when they differ. */
+async function cmdVersion(args: Args): Promise<void> {
+  const hub = await findLiveHub();
+  let hubVersion: string | null = null;
+  if (hub) {
+    try {
+      const res = await fetch(`${hub.url}/api/hub`, { signal: AbortSignal.timeout(1500) });
+      hubVersion = ((await res.json()) as { version?: string }).version ?? hub.version ?? 'unknown';
+    } catch {
+      hubVersion = hub.version ?? 'unknown';
+    }
+  }
+  if (args.flags.json) {
+    console.log(JSON.stringify({ version: VERSION, hub: hub ? { version: hubVersion, url: hub.url, pid: hub.pid } : null }));
+    return;
+  }
+  console.log(`marj ${VERSION}`);
+  if (hub && hubVersion !== VERSION) {
+    console.log(`hub running at ${hub.url} is ${hubVersion} — \`marj stop --all\` then \`marj\` to upgrade it`);
+  } else if (hub) {
+    console.log(`hub running at ${hub.url} (same version)`);
+  }
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
+  if (args.flags.version || args.command === 'version') {
+    await cmdVersion(args);
+    return;
+  }
   if (args.flags.help) {
     console.log(HELP);
     return;

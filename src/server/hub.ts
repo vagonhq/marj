@@ -196,6 +196,7 @@ export async function startHub(opts: HubOptions = {}): Promise<{ info: HubInfo; 
       cwd: ctx.cwd,
       mode: ctx.mode(),
       startedAt: ctx.startedAt,
+      version: VERSION,
       ...(ctx.session ? { session: ctx.session } : {}),
     };
   }

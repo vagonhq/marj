@@ -17,6 +17,7 @@ import {
   type DiffTarget,
 } from './git.js';
 import { ThreadStore } from './threads.js';
+import { VERSION } from './version.js';
 import { startWatcher } from './watch.js';
 import {
   FILE_LEVEL,
@@ -119,6 +120,9 @@ export async function createRepoContext(opts: ContextOptions): Promise<RepoConte
   router.use(express.json({ limit: '4mb' }));
 
   router.get('/api/diff', (_req, res) => res.json(diff));
+
+  /** Which marj is serving this review — shown in the header, handy when asking "am I up to date?" */
+  router.get('/api/about', (_req, res) => res.json({ version: VERSION, id, repoRoot, session }));
 
   router.get('/api/threads', (_req, res) => res.json({ cursor: store.cursor, threads: store.list() }));
 

@@ -161,6 +161,8 @@ export interface ServerInfo {
   session?: string;
   /** the hub mounts this review under /r/<id> */
   id?: string;
+  /** marj version of the hub serving it */
+  version?: string;
 }
 
 /** What is in the working tree but not in HEAD — the fixes of this review, plus anything else uncommitted. */

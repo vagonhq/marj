@@ -40,6 +40,7 @@ export const api = {
   refresh: () => json<{ version: number }>('/api/refresh', { method: 'POST' }),
   worktree: () => json<WorktreeState>('/api/worktree'),
   servers: () => json<ServerListing[]>('/api/servers'),
+  about: () => json<{ version: string; id: string; repoRoot: string; session: string | null }>('/api/about'),
   commit: (input: { message: string; paths?: string[]; push?: boolean }) =>
     json<{ sha: string; branch: string | null; pushed: boolean; pushError?: string }>('/api/commit', {
       method: 'POST',

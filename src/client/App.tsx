@@ -130,6 +130,8 @@ export function App() {
   const [reveal, setReveal] = useState<{ file: string; line: number; nonce: number } | null>(null);
   /** HEAD -> working tree: the fixes of this review and anything else not committed */
   const [worktree, setWorktree] = useState<WorktreeState | null>(null);
+  /** which marj is serving this page */
+  const [version, setVersion] = useState<string | null>(null);
 
   const pulseTimer = useRef<number>();
   const collapsedInitialised = useRef(false);
@@ -236,6 +238,7 @@ export function App() {
   }, [scrollToThread]);
 
   useEffect(() => {
+    api.about().then((a) => setVersion(a.version)).catch(() => {});
     void loadDiff();
     void loadThreads();
     void loadWorktree();
@@ -384,9 +387,10 @@ export function App() {
     <div className="app">
       <header className="pagehead">
         <div className="pagehead-row title-row">
-          <span className="brand">
+          <span className="brand" title={version ? `marj ${version}` : 'marj'}>
             <span className="brand-mark">m</span>
             marj
+            {version && <span className="version">v{version}</span>}
           </span>
           <span className="crumb-sep">/</span>
           <RepoSwitcher name={repoName || '…'} repoRoot={diff?.repoRoot} />
