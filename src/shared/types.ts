@@ -159,6 +159,8 @@ export interface ServerInfo {
   startedAt: string;
   /** the isolated session this server serves, or undefined for the default one */
   session?: string;
+  /** the hub mounts this review under /r/<id> */
+  id?: string;
 }
 
 /** What is in the working tree but not in HEAD — the fixes of this review, plus anything else uncommitted. */
@@ -179,6 +181,8 @@ export interface WorktreeState {
 
 /** One marj server (or a repo with saved reviews but no server), for the repo switcher. */
 export interface ServerListing {
+  /** hub mount id (/r/<id>) when it is being served, null for a stopped repo */
+  id: string | null;
   /** repo folder name, e.g. "vagon-frontend" or a worktree's folder */
   name: string;
   repoRoot: string;

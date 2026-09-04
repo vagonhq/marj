@@ -54,10 +54,10 @@ The plugin adds four commands:
 
 | Command | What it does |
 | --- | --- |
-| `/marj:review [target]` | start (or reuse) the review server, open the browser, watch for your comments |
+| `/marj:review [target]` | register this repo with the hub (starting it if needed), open the browser, watch for your comments |
 | `/marj:commit` | Claude writes a commit message from the diff, commits the review's fixes and pushes |
 | `/marj:reload` | fetch from the remote (re-pull a PR head) and refresh the diff, keeping every thread |
-| `/marj:reset` | stop every marj server for the repo, wipe all its threads and chat, start clean |
+| `/marj:reset` | end every review of the repo, wipe all its threads and chat, start clean |
 
 ### Where to run it
 
@@ -126,9 +126,11 @@ marj reset                  # /marj:reset  — stop every server and wipe .marj 
 
 ## Several reviews at once
 
-Every repo runs its own server (the port walks up from 4711; state lives outside the repo in `~/.marj/repos/<repo>-<hash>/`, keyed by the clone's path). Running `marj` twice in the same repo reuses the running one instead of duplicating it.
+**One hub, one port, every repo.** The first `marj` starts a small background hub on `127.0.0.1:4711`; every later `marj` — another repo, a worktree, a second clone — registers with it and returns at once, no new process, no new port. Each review lives at `http://127.0.0.1:4711/r/<repo>/`, with its own threads, chat and file watcher; state sits outside the repo in `~/.marj/repos/<repo>-<hash>/`. Running `marj` again in a repo already under review just reuses it.
 
-**Switching between them:** the repo name at the top left is a menu of every repo and worktree marj knows about — frontend, backend, a worktree of either. Pick one and the tab jumps to that repo's server, showing only its diff. Repos with saved reviews but no running server are listed greyed out, so you can see where to start `marj`.
+**Switching between them:** the repo name at the top left is a menu of every repo and worktree marj knows about — frontend, backend, a worktree of either. Pick one and the tab moves to that review, showing only its diff. Repos with saved reviews that aren't registered right now are listed greyed out, so you can see where to run `marj`.
+
+`marj stop` ends one repo's review; when the last one ends, the hub exits on its own. `marj stop --all` shuts everything down at once. The hub's log is `~/.marj/hub.log`.
 
 To review two things side by side — a second branch, a PR, a clean slate — start an **isolated session** with its own threads, chat and port. It shares nothing, and starting one never stops the others:
 
@@ -142,11 +144,13 @@ marj stop  --session pr-42
 
 ## HTTP API
 
-Bound to `127.0.0.1` only.
+Bound to `127.0.0.1` only. One hub serves every review; a review's routes are prefixed with `/r/<id>`.
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /api/diff` | parsed diff |
+| `GET /api/hub` · `GET /api/servers` | hub status; every review for the switcher (hub level) |
+| `POST /api/repos` · `DELETE /api/repos/:id` | register / end a review (what `marj` and `marj stop` call) |
+| `GET /r/:id/api/diff` | parsed diff — every route below lives under `/r/<id>` |
 | `GET /api/file?path=&side=` | one side of a file in full, for expanding context |
 | `GET /api/threads` · `POST /api/threads` | list / create |
 | `POST /api/threads/:id/messages` | reply (`role: user \| agent`, `intent: ask \| fix`) |
@@ -164,9 +168,10 @@ Bound to `127.0.0.1` only.
 
 ```
 --exact          compare two revisions tip to tip instead of from their merge base
---session <name> an isolated review with its own sessions/<name>/ state
---port <n>       preferred port (default 4711, walks up if taken)
---host <h>       bind address (default 127.0.0.1)
+--session <name> an isolated review of the same repo, with its own threads and chat
+--force          a second, isolated review of a repo already under review (auto-named s2, s3, …)
+--port <n>       (hub) preferred port when the hub is started (default 4711, walks up if taken)
+--host <h>       (hub) bind address when the hub is started (default 127.0.0.1)
 --context <n>    diff context lines (default 5)
 --no-open        do not open a browser
 --no-watch       do not refresh when files change

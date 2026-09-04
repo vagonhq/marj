@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { repoRootOf } from '../server/git.js';
-import { normaliseSession, stateDir } from '../server/index.js';
+import { normaliseSession, stateDir } from '../server/state.js';
 import type { AgentEvent, ServerInfo, Thread, WaitResponse } from '../shared/types.js';
 
 export class NoServerError extends Error {}

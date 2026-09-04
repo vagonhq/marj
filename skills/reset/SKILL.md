@@ -20,8 +20,8 @@ wants to drop a few threads, use `marj delete <id>…` instead; reset is the who
    cd <repo root> && marj reset
    ```
 
-   This stops the default server and every session server, then deletes the repo's state folder
-   (and any old `<repo>/.marj` left by earlier versions).
+   This ends the repo's review and every session of it on the hub, then deletes the repo's state
+   folder (and any old `<repo>/.marj` left by earlier versions). Other repos on the hub are untouched.
 
 2. Start a clean review again, exactly like `/marj:review` — same target the user gives you
    (default is the working tree):
@@ -31,7 +31,7 @@ wants to drop a few threads, use `marj delete <id>…` instead; reset is the who
    open <url>
    ```
 
-3. **Re-arm the watch** (a Monitor running `marj watch`), because the old server and its watch
+3. **Re-arm the watch** (a Monitor running `marj watch`), because the old review and its watch
    are gone. Follow section 2 of the `review` skill.
 
 Tell the user it's reset and you're watching the fresh review at the new URL.

@@ -2,7 +2,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { findLiveServer, GitError, LEGACY_DIR, MARJ_HOME, normaliseSession, repoStateBase, startServer, stateDir } from '../server/index.js';
+import { findLiveHub, GitError, LEGACY_DIR, normaliseSession, repoStateBase, startServer, stateDir } from '../server/index.js';
 import { repoRootOf } from '../server/git.js';
 import { findServer, MarjClient, NoServerError } from './api.js';
 import { describeTarget, FILE_LEVEL, isChat, isFileLevel, type AgentEvent, type Thread } from '../shared/types.js';
@@ -10,7 +10,8 @@ import { describeTarget, FILE_LEVEL, isChat, isFileLevel, type AgentEvent, type 
 const HELP = `marj — review local git changes in your browser, with your Claude Code session in the thread
 
 Usage
-  marj [<revision>...]            start the review server and open the browser
+  marj [<revision>...]            review this repo: joins the hub (starting it if needed), opens the browser
+  marj hub                        run the hub in the foreground (normally \`marj\` starts it as a daemon)
   marj watch                      stream new comments, one line each (for agents)
   marj threads [--pending]        list threads
   marj show <id>                  print a thread with its code context
@@ -20,15 +21,18 @@ Usage
   marj comment <file> <text>      open a thread on the file as a whole
   marj resolve <id>               mark a thread resolved
   marj delete <id>...             delete threads permanently
-  marj stop                       stop the running server
+  marj stop [--all]               end this repo's review; --all stops the hub and every review on it
   marj commit -m <msg> [--push] [path...]   commit the uncommitted changes (all, or just these paths)
   marj reload                     sync from the remote (fetch, re-pull a PR) and refresh the diff
-  marj reset                      stop every server for this repo and delete all its threads/chat
+  marj reset                      end every review of this repo and delete all its threads/chat
 
-Sessions (independent reviews in the same repo)
-  marj --session <name>           start an isolated server: its own threads, chat and port
-  marj <cmd> --session <name>     talk to that server (watch, threads, show, reply, stop, …)
-  marj --force                    start another server without a name (auto: s2, s3, …)
+One hub, one port, every repo: each review lives at http://127.0.0.1:4711/r/<repo>/ and the
+repo name in the header switches between repos and worktrees.
+
+Sessions (independent reviews of the same repo)
+  marj --session <name>           an isolated review: its own threads and chat
+  marj <cmd> --session <name>     talk to that review (watch, threads, show, reply, stop, …)
+  marj --force                    a second review of a repo already under review (auto-named s2, s3, …)
 
 Targets
   marj                            working tree vs HEAD (plus untracked files)
@@ -43,11 +47,11 @@ Targets
 
 Options
   --exact          compare two revisions tip to tip instead of from their merge base
-  --port <n>       preferred port (default 4711)
-  --host <h>       bind address (default 127.0.0.1)
+  --port <n>       (hub) preferred port when the hub is started (default 4711)
+  --host <h>       (hub) bind address when the hub is started (default 127.0.0.1)
   --context <n>    diff context lines (default 5)
   --no-open        do not open a browser
-  --force          start a second server for a repo that already has one
+  --force          a second, isolated review of a repo already under review
   --no-watch       do not refresh when files change
   --json           machine readable output
   --pending        (threads) only unanswered threads
@@ -91,7 +95,7 @@ function parseArgs(argv: string[]): Args {
     positional.push(arg);
   }
 
-  const commands = new Set(['watch', 'threads', 'show', 'reply', 'comment', 'resolve', 'delete', 'stop', 'commit', 'reload', 'reset', 'serve']);
+  const commands = new Set(['watch', 'threads', 'show', 'reply', 'comment', 'resolve', 'delete', 'stop', 'commit', 'reload', 'reset', 'hub', 'serve']);
   const command = commands.has(positional[0]) ? positional.shift()! : 'serve';
   return { command, positional, flags };
 }
@@ -116,14 +120,6 @@ async function connect(flags: Args['flags']): Promise<MarjClient> {
   return new MarjClient(info.url);
 }
 
-/** Pick a free `s2`, `s3`, … under .marj/sessions so `--force` never clobbers the default. */
-async function autoSession(repoRoot: string): Promise<string> {
-  for (let n = 2; ; n++) {
-    const name = `s${n}`;
-    if (!(await findLiveServer(repoRoot, name))) return name;
-  }
-}
-
 function formatEvent(event: AgentEvent): string {
   const body = event.body.replace(/\s*\n+\s*/g, ' ⏎ ').trim();
   const clipped = body.length > 400 ? `${body.slice(0, 397)}...` : body;
@@ -144,36 +140,12 @@ async function cmdServe(args: Args): Promise<void> {
   const positional = args.positional.filter((p) => p !== '-');
 
   // marj works on a local clone, from anywhere inside it; it never clones
-  let repoRoot: string;
   try {
-    repoRoot = await repoRootOf(process.cwd());
+    await repoRootOf(process.cwd());
   } catch {
     throw new Error(
       `not inside a git repository (${process.cwd()}). marj reviews a local clone: cd into the repo — any subdirectory works — and run it again. It never clones.`,
     );
-  }
-  let session = normaliseSession(sessionOf(args.flags)) ?? undefined;
-
-  // one server per (repo, session); reuse an existing one rather than doubling up
-  const existing = await findLiveServer(repoRoot, session ?? null);
-  if (existing) {
-    if (args.flags.force === true) {
-      // an explicit second server for the same target gets its own isolated session
-      session = await autoSession(repoRoot);
-    } else {
-      if (args.flags.json) {
-        console.log(JSON.stringify({ ...existing, reused: true }));
-      } else {
-        const label = existing.session ? `session "${existing.session}"` : 'this repo';
-        console.log(`marj is already running for ${label} → ${existing.url}  (${existing.mode})`);
-        console.log('`marj stop` to shut it down, or `marj --session <name>` for an isolated one');
-      }
-      if (args.flags.open !== false) {
-        const { default: open } = await import('open');
-        await open(existing.url).catch(() => {});
-      }
-      return;
-    }
   }
 
   const running = await startServer({
@@ -186,25 +158,40 @@ async function cmdServe(args: Args): Promise<void> {
     context: args.flags.context ? num(args.flags.context, 5) : undefined,
     stdinDiff,
     watch: args.flags.watch !== false,
-    session,
+    session: sessionOf(args.flags),
+    force: args.flags.force === true,
   });
+  const { info } = running;
 
   if (args.flags.json) {
-    console.log(JSON.stringify(running.info));
+    console.log(JSON.stringify(info));
   } else {
-    const tag = running.info.session ? `  [session ${running.info.session}]` : '';
-    console.log(`marj → ${running.info.url}  (${running.info.mode})${tag}`);
-    const watch = running.info.session ? `marj watch --session ${running.info.session}` : 'marj watch';
-    console.log(`comments land in your agent via \`${watch}\`; Ctrl-C to stop`);
+    const tag = info.session ? `  [session ${info.session}]` : '';
+    const sess = info.session ? ` --session ${info.session}` : '';
+    console.log(`${info.reused ? 'already reviewing → ' : 'marj → '}${info.url}  (${info.mode})${tag}`);
+    if (running.hubSpawned) {
+      console.log(`hub started in the background at ${info.url.replace(/\/r\/.*$/, '')} — every repo shares it; \`marj stop --all\` shuts it down`);
+    }
+    console.log(`comments reach your agent via \`marj watch${sess}\`; \`marj stop${sess}\` ends this review`);
   }
 
   if (args.flags.open !== false) {
     const { default: open } = await import('open');
-    await open(running.info.url).catch(() => {});
+    await open(info.url).catch(() => {});
   }
+}
 
+/** The hub process: one port, every repo. `marj` starts it for you as a daemon; this runs it in the foreground. */
+async function cmdHub(args: Args): Promise<void> {
+  const { startHub } = await import('../server/hub.js');
+  const { info, close } = await startHub({
+    port: args.flags.port ? num(args.flags.port, 4711) : undefined,
+    host: typeof args.flags.host === 'string' ? args.flags.host : undefined,
+    exitWhenEmpty: args.flags['exit-when-empty'] !== false,
+  });
+  console.log(`marj hub → ${info.url}  (pid ${info.pid}); run \`marj\` inside a repo to add it`);
   const shutdown = async () => {
-    await running.close();
+    await close();
     process.exit(0);
   };
   process.on('SIGINT', () => void shutdown());
@@ -344,15 +331,27 @@ async function cmdDelete(args: Args): Promise<void> {
 }
 
 async function cmdStop(args: Args): Promise<void> {
+  if (args.flags.all === true) {
+    const hub = await findLiveHub();
+    if (!hub) {
+      console.log('no marj hub is running');
+      return;
+    }
+    process.kill(hub.pid, 'SIGTERM');
+    console.log(`stopped the marj hub (pid ${hub.pid}) and every review on it`);
+    return;
+  }
   const info = await findServer(process.cwd(), args.flags.port ? num(args.flags.port, 0) : undefined, sessionOf(args.flags));
-  if (!info.pid) throw new Error('no pid recorded for the running server');
-  process.kill(info.pid, 'SIGTERM');
+  const id = info.id ?? info.url.match(/\/r\/([^/]+)/)?.[1];
+  if (!id) throw new Error('that server.json predates the hub; use `marj stop --all`');
+  const hubUrl = info.url.replace(/\/r\/[^/]+\/?$/, '');
+  const res = await fetch(`${hubUrl}/api/repos/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => null);
+  if (res && !res.ok && res.status !== 404) throw new Error(`could not stop the review: ${res.status}`);
   await fs.rm(path.join(stateDir(info.repoRoot, normaliseSession(sessionOf(args.flags))), 'server.json'), { force: true });
   const tag = info.session ? ` (session ${info.session})` : '';
-  console.log(`stopped marj${tag} (pid ${info.pid})`);
+  console.log(`stopped the review of ${info.repoRoot}${tag}`);
 }
 
-/** Commit (and push) the working tree through the running server, so the UI refreshes too. */
 async function cmdCommit(args: Args): Promise<void> {
   // -m given (even blank) means "this is the message"; only without -m do we read a piped heredoc,
   // so a blank -m fails fast instead of hanging on stdin
@@ -387,56 +386,37 @@ async function cmdReload(args: Args): Promise<void> {
   else console.log(`refreshed the diff (fetch had problems: ${(result.errors ?? []).join('; ') || 'offline?'})`);
 }
 
-/** Wait until a process is gone, or give up after `ms`. */
-async function waitForExit(pid: number, ms: number): Promise<void> {
-  const until = Date.now() + ms;
-  for (;;) {
-    try {
-      process.kill(pid, 0);
-    } catch {
-      return; // gone
-    }
-    if (Date.now() > until) return;
-    await new Promise((r) => setTimeout(r, 50));
-  }
-}
-
 async function cmdReset(args: Args): Promise<void> {
   const repoRoot = await repoRootOf(process.cwd());
-  const marjDir = repoStateBase(repoRoot);
+  const base = repoStateBase(repoRoot);
 
-  // collect the default server and every session server, kill them all
-  const infoPaths = [`${marjDir}/server.json`];
+  // unregister the default review and every session from the hub, if it is up
+  const hub = await findLiveHub();
+  const infoPaths = [path.join(base, 'server.json')];
   try {
-    const sessions = await fs.readdir(`${marjDir}/sessions`);
-    for (const name of sessions) infoPaths.push(`${marjDir}/sessions/${name}/server.json`);
+    for (const name of await fs.readdir(path.join(base, 'sessions'))) infoPaths.push(path.join(base, 'sessions', name, 'server.json'));
   } catch {
     /* no sessions */
   }
-  const pids: number[] = [];
+  let stopped = 0;
   for (const infoPath of infoPaths) {
     try {
-      const info = JSON.parse(await fs.readFile(infoPath, 'utf8')) as { pid?: number };
-      if (info.pid) pids.push(info.pid);
+      const info = JSON.parse(await fs.readFile(infoPath, 'utf8')) as { id?: string; url?: string };
+      const id = info.id ?? info.url?.match(/\/r\/([^/]+)/)?.[1];
+      if (hub && id) {
+        const res = await fetch(`${hub.url}/api/repos/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => null);
+        if (res?.ok) stopped++;
+      }
     } catch {
       /* not running */
     }
   }
-  for (const pid of pids) {
-    try {
-      process.kill(pid, 'SIGTERM');
-    } catch {
-      /* already gone */
-    }
-  }
-  // let them flush and exit before we delete, so a late save can't recreate state
-  await Promise.all(pids.map((pid) => waitForExit(pid, 2000)));
-  await fs.rm(marjDir, { recursive: true, force: true });
+  await fs.rm(base, { recursive: true, force: true });
   // and any folder an older marj left inside the repo
   await fs.rm(path.join(repoRoot, LEGACY_DIR), { recursive: true, force: true });
 
-  if (args.flags.json) console.log(JSON.stringify({ reset: true, stopped: pids.length, cleared: marjDir }));
-  else console.log(`reset marj: stopped ${pids.length} server${pids.length === 1 ? '' : 's'} and cleared ${marjDir}`);
+  if (args.flags.json) console.log(JSON.stringify({ reset: true, stopped, cleared: base }));
+  else console.log(`reset marj: ended ${stopped} review${stopped === 1 ? '' : 's'} and cleared ${base}`);
 }
 
 async function main(): Promise<void> {
@@ -454,6 +434,7 @@ async function main(): Promise<void> {
     case 'resolve': return cmdResolve(args);
     case 'delete': return cmdDelete(args);
     case 'stop': return cmdStop(args);
+    case 'hub': return cmdHub(args);
     case 'commit': return cmdCommit(args);
     case 'reload': return cmdReload(args);
     case 'reset': return cmdReset(args);

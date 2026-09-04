@@ -1,7 +1,10 @@
 import type { DiffPayload, Intent, ServerEvent, ServerListing, Thread, WorktreeState } from '../shared/types';
 
+/** The hub serves each review under /r/<id>; every call stays inside that prefix. */
+export const BASE = (window.location.pathname.match(/^\/r\/[^/]+/) ?? [''])[0];
+
 async function json<T>(input: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(input, {
+  const res = await fetch(`${BASE}${input}`, {
     ...init,
     headers: init?.body ? { 'content-type': 'application/json' } : undefined,
   });
@@ -29,7 +32,7 @@ export const api = {
       body: JSON.stringify({ role: 'user', body, intent }),
     }),
   remove: (id: string) =>
-    fetch(`/api/threads/${id}`, { method: 'DELETE' }).then((res) => {
+    fetch(`${BASE}/api/threads/${id}`, { method: 'DELETE' }).then((res) => {
       if (!res.ok) throw new Error(`DELETE /api/threads/${id} → ${res.status}`);
     }),
   patch: (id: string, patch: { status?: string }) =>
@@ -53,7 +56,7 @@ export function subscribe(onEvent: (event: ServerEvent) => void): () => void {
 
   const connect = () => {
     if (stopped) return;
-    source = new EventSource('/api/events');
+    source = new EventSource(`${BASE}/api/events`);
     source.onmessage = (message) => onEvent(JSON.parse(message.data) as ServerEvent);
     source.onerror = () => {
       source?.close();

@@ -37,14 +37,18 @@ say so, and then into the path they name.
 ## 1. Start the server
 
 ```bash
-cd <repo root> && marj --json --no-open        # prints {"port":4711,"url":"...","mode":"..."}
+cd <repo root> && marj --json --no-open        # prints {"url":"http://127.0.0.1:4711/r/<repo>","mode":"...","reused":false,...}
 ```
 
-Run it with Bash `run_in_background: true`, read the `url` from its output file, then open it:
+It returns at once: the first `marj` starts a small background **hub** (one process, one port for
+every repo) and registers this repo with it; later ones just register. No `run_in_background`
+needed — read `url` from the output and open it:
 
 ```bash
 open <url>            # macOS; xdg-open elsewhere
 ```
+
+If `reused` is true the repo was already under review; the URL is the existing one.
 
 Targets: `marj` (working tree vs HEAD, the default), `marj --staged`, `marj <commit>`,
 `marj develop` (the current branch as a PR into develop), `marj develop..feature`, `marj <a> <b>`,
@@ -217,13 +221,13 @@ lines; answer each once, in the same thread.
 
 ## 5. Several repos at once
 
-Each repo gets its own server (its own port, its own state folder under `~/.marj/repos/`), so you can review two
-workspaces side by side: start `marj` in each and arm **one Monitor per repo**. Give each
+Every repo joins the same hub, so reviewing two workspaces side by side is just `marj` in each
+(same port, `/r/<repo>/` each) and **one Monitor per repo** for `marj watch`. Give each
 watch a description naming the repo — `marj comments (vagon-core)` — because notifications
 from both land in the same conversation and the thread ids (`t1`, `t2`) repeat across repos.
 
-Every follow-up command must run in that repo's directory, since the CLI finds the server
-through the repo's state folder (`~/.marj/repos/<repo>-<hash>/server.json`), derived from the repo path:
+Every follow-up command must run in that repo's directory, since the CLI finds the repo's review
+through its state folder (`~/.marj/repos/<repo>-<hash>/server.json`), derived from the repo path:
 
 ```bash
 cd /path/to/repo-a && marj show t3
@@ -248,5 +252,6 @@ Give the Monitor a description naming the session so its notifications are disti
 
 ## 6. Finish
 
-`marj stop` shuts the server down. The threads stay in `~/.marj/repos/<repo>-<hash>/threads.json` — outside the repo — so a later
+`marj stop` ends this repo's review (the hub exits by itself once the last one ends; `marj stop --all`
+stops everything). The threads stay in `~/.marj/repos/<repo>-<hash>/threads.json` — outside the repo — so a later
 `marj` in the same repo brings the whole conversation back.
