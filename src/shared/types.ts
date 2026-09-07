@@ -201,6 +201,22 @@ export interface ServerListing {
   branch: string | null;
 }
 
+/** One pull request in the header's PR picker, as `gh pr list` reports it. */
+export interface PrListing {
+  number: number;
+  title: string;
+  /** GitHub login of whoever opened it, when gh reports one */
+  author: string | null;
+  /** head branch, i.e. the code being proposed */
+  branch: string | null;
+  draft: boolean;
+  /** open, closed or merged, lowercased */
+  state: string;
+  updatedAt: string | null;
+  /** the PR page on GitHub */
+  url: string | null;
+}
+
 export type ServerEvent =
   | { type: 'diff:changed'; version: number }
   | { type: 'threads:changed'; cursor: number }

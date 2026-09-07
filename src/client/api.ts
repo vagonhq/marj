@@ -1,14 +1,18 @@
-import type { DiffPayload, Intent, ServerEvent, ServerListing, Thread, WorktreeState } from '../shared/types';
+import type { DiffPayload, Intent, PrListing, ServerEvent, ServerListing, ServerInfo, Thread, WorktreeState } from '../shared/types';
 
 /** The hub serves each review under /r/<id>; every call stays inside that prefix. */
 export const BASE = (window.location.pathname.match(/^\/r\/[^/]+/) ?? [''])[0];
 
-async function json<T>(input: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${input}`, {
+async function json<T>(input: string, init?: RequestInit, prefix = BASE): Promise<T> {
+  const res = await fetch(`${prefix}${input}`, {
     ...init,
     headers: init?.body ? { 'content-type': 'application/json' } : undefined,
   });
-  if (!res.ok) throw new Error(`${init?.method ?? 'GET'} ${input} → ${res.status}`);
+  if (!res.ok) {
+    // the server explains a bad target or a missing `gh` in the body; show that, not the status
+    const detail = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(detail?.error ?? `${init?.method ?? 'GET'} ${input} → ${res.status}`);
+  }
   return (await res.json()) as T;
 }
 
@@ -47,6 +51,19 @@ export const api = {
       body: JSON.stringify(input),
     }),
   checkout: () => json<{ branch: string; mode: string }>('/api/checkout', { method: 'POST' }),
+  /** this repo's pull requests matching what was typed in the picker */
+  prs: (query: string) => json<PrListing[]>(`/api/prs?q=${encodeURIComponent(query)}`),
+  /**
+   * Review a pull request: the hub registers it as its own session of this repo,
+   * so the current review keeps its threads. Lives on the hub itself, not under
+   * /r/<id>, hence the empty prefix.
+   */
+  openPr: (cwd: string, number: number) =>
+    json<ServerInfo & { id: string; reused: boolean }>(
+      '/api/repos',
+      { method: 'POST', body: JSON.stringify({ cwd, positional: [`#${number}`], force: true }) },
+      '',
+    ),
 };
 
 /** SSE with automatic reconnect. */

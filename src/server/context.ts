@@ -16,6 +16,7 @@ import {
   worktreeTarget,
   type DiffTarget,
 } from './git.js';
+import { searchPullRequests } from './prs.js';
 import { ThreadStore } from './threads.js';
 import { VERSION } from './version.js';
 import { startWatcher } from './watch.js';
@@ -281,6 +282,15 @@ export async function createRepoContext(opts: ContextOptions): Promise<RepoConte
       }
       await refresh();
       res.json({ branch, mode: diff.mode });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  });
+
+  /** This repo's pull requests matching `q`, for the PR picker in the header. */
+  router.get('/api/prs', async (req, res) => {
+    try {
+      res.json(await searchPullRequests(repoRoot, String(req.query.q ?? '')));
     } catch (err) {
       res.status(400).json({ error: (err as Error).message });
     }
