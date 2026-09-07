@@ -9,7 +9,7 @@ import {
   FoldUpIcon,
   UnfoldIcon,
 } from '@primer/octicons-react';
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, memo, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { addRange, expandFile, gapsOf, STEP, type Gap, type Range } from '../expand.js';
 import { flashElement, lineRow } from '../flash.js';
@@ -36,8 +36,8 @@ interface Props {
   author: string;
   collapsed: boolean;
   viewed: boolean;
-  onToggle: () => void;
-  onToggleViewed: () => void;
+  onToggle: (path: string) => void;
+  onToggleViewed: (file: DiffFile) => void;
   draft: DraftTarget | null;
   onDraft: (draft: DraftTarget | null) => void;
   onSubmitDraft: (body: string, intent: Intent) => Promise<void>;
@@ -120,7 +120,129 @@ function buildRows(file: DiffFile, view: 'unified' | 'split'): Row[] {
 
 const numberOn = (row: Row, side: Side) => (side === 'old' ? row.oldNo : row.newNo);
 
-export function FileCard(props: Props) {
+/** the gutter/drag callbacks a row needs; kept identity-stable so rows can be memoised */
+interface RowHandlers {
+  startSelect: (event: React.MouseEvent, side: Side, index: number) => void;
+  extendSelect: (index: number, expect?: Side) => void;
+}
+
+interface RowProps {
+  row: Row;
+  view: 'unified' | 'split';
+  path: string;
+  scope: 'review' | 'worktree';
+  readOnly: boolean;
+  /** which side's selection this row is part of, or null */
+  selected: Side | null;
+  /** syntax tokens for the line(s); undefined until the highlighter is done */
+  oldTokens?: TokenLine;
+  newTokens?: TokenLine;
+  handlers: RowHandlers;
+  /** threads and the composer sitting under this row, if any */
+  overlay: React.ReactNode;
+}
+
+function renderCode(line: TokenLine | undefined, text: string) {
+  if (!line || line.length === 0) return <span className="code">{text === '' ? ' ' : text}</span>;
+  return (
+    <span className="code">
+      {line.map((token, index) => (
+        <span key={index} className="tok" style={token.style as React.CSSProperties}>
+          {token.text}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/**
+ * One diff row. Memoised: a drag, a new thread or a toggle elsewhere on the
+ * page must not re-render the thousands of rows that did not change.
+ */
+const DiffRow = memo(function DiffRow({ row, view, path, scope, readOnly, selected, oldTokens, newTokens, handlers, overlay }: RowProps) {
+  const gutterButton = (side: Side, no: number) =>
+    readOnly ? null : (
+      <button
+        className="add-comment"
+        title="Comment — drag down the gutter or shift-click to select more lines"
+        aria-label={`Comment on line ${no}`}
+        onMouseDown={(event) => handlers.startSelect(event, side, row.index)}
+      >
+        +
+      </button>
+    );
+
+  if (view === 'unified') {
+    const line = row.line!;
+    const side: Side = line.type === 'del' ? 'old' : 'new';
+    const no = numberOn(row, side);
+    return (
+      <>
+        <tr
+          className={`line ${line.type}${selected ? ' selected' : ''}`}
+          data-file={path}
+          data-scope={scope}
+          data-old={line.oldNo ?? undefined}
+          data-new={line.newNo ?? undefined}
+          onMouseEnter={() => handlers.extendSelect(row.index)}
+        >
+          <td className="num old" onMouseDown={(e) => no !== null && handlers.startSelect(e, side, row.index)}>
+            {no !== null && gutterButton(side, no)}
+            <span className="n">{line.oldNo ?? ''}</span>
+          </td>
+          <td className="num new" onMouseDown={(e) => no !== null && handlers.startSelect(e, side, row.index)}>
+            <span className="n">{line.newNo ?? ''}</span>
+          </td>
+          <td className="content">
+            <span className="marker">{line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' '}</span>
+            {renderCode(side === 'old' ? oldTokens : newTokens, line.text)}
+          </td>
+        </tr>
+        {overlay}
+      </>
+    );
+  }
+
+  const leftSelected = selected === 'old';
+  const rightSelected = selected === 'new';
+  return (
+    <>
+      <tr className="line split" data-file={path} data-scope={scope} data-old={row.oldNo ?? undefined} data-new={row.newNo ?? undefined}>
+        <td
+          className={`num old${leftSelected ? ' selected' : ''}`}
+          onMouseDown={(e) => row.oldNo !== null && handlers.startSelect(e, 'old', row.index)}
+          onMouseEnter={() => handlers.extendSelect(row.index, 'old')}
+        >
+          {row.oldNo !== null && row.left?.type === 'del' && gutterButton('old', row.oldNo)}
+          <span className="n">{row.oldNo ?? ''}</span>
+        </td>
+        <td
+          className={`content ${row.left ? row.left.type : 'filler'}${leftSelected ? ' selected' : ''}`}
+          onMouseEnter={() => handlers.extendSelect(row.index, 'old')}
+        >
+          {row.left ? renderCode(oldTokens, row.left.text) : null}
+        </td>
+        <td
+          className={`num new${rightSelected ? ' selected' : ''}`}
+          onMouseDown={(e) => row.newNo !== null && handlers.startSelect(e, 'new', row.index)}
+          onMouseEnter={() => handlers.extendSelect(row.index, 'new')}
+        >
+          {row.newNo !== null && gutterButton('new', row.newNo)}
+          <span className="n">{row.newNo ?? ''}</span>
+        </td>
+        <td
+          className={`content ${row.right ? row.right.type : 'filler'}${rightSelected ? ' selected' : ''}`}
+          onMouseEnter={() => handlers.extendSelect(row.index, 'new')}
+        >
+          {row.right ? renderCode(newTokens, row.right.text) : null}
+        </td>
+      </tr>
+      {overlay}
+    </>
+  );
+});
+
+export const FileCard = memo(function FileCard(props: Props) {
   const {
     file,
     view,
@@ -181,7 +303,18 @@ export function FileCard(props: Props) {
   const shown = useMemo(() => expandFile(file, full, ranges), [file, full, ranges]);
   const gaps = useMemo(() => (canExpand ? gapsOf(shown, full ? full.length : null) : []), [shown, full, canExpand]);
   const rows = useMemo(() => buildRows(shown, view), [shown, view]);
-  const hasNewLine = (no: number) => shown.hunks.some((h) => h.lines.some((l) => l.newNo === no));
+  const rowsByHunk = useMemo(() => {
+    const groups: Row[][] = shown.hunks.map(() => []);
+    for (const row of rows) groups[row.hunkIndex].push(row);
+    return groups;
+  }, [rows, shown]);
+  const gapBefore = useMemo(() => new Map(gaps.map((gap) => [gap.before, gap])), [gaps]);
+  const newLines = useMemo(() => {
+    const set = new Set<number>();
+    for (const hunk of shown.hunks) for (const line of hunk.lines) if (line.newNo !== null) set.add(line.newNo);
+    return set;
+  }, [shown]);
+  const hasNewLine = (no: number) => newLines.has(no);
 
   // threads on lines outside the hunks (left on expanded context) get their lines back
   useEffect(() => {
@@ -210,16 +343,22 @@ export function FileCard(props: Props) {
 
   // syntax colours arrive asynchronously; plain text is shown until then
   const [tokens, setTokens] = useState<Map<string, TokenLine> | null>(null);
+  /** the diff the current tokens were made for; re-opening a card must not tokenize again */
+  const highlightedFor = useRef<DiffFile | null>(null);
   useEffect(() => {
-    if (!language || collapsed || file.binary) return;
+    if (!language || collapsed || file.binary || highlightedFor.current === shown) return;
     let alive = true;
     highlightFile(shown, language)
-      .then((result) => alive && setTokens(result))
+      .then((result) => {
+        if (!alive) return;
+        highlightedFor.current = shown;
+        setTokens(result);
+      })
       .catch(() => alive && setTokens(null));
     return () => {
       alive = false;
     };
-  }, [shown, language, collapsed]);
+  }, [shown, language, collapsed, file.binary]);
 
   const [span, setSpan] = useState<{ side: Side; from: number; to: number } | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -234,7 +373,7 @@ export function FileCard(props: Props) {
 
   /** comment on the file as a whole; the composer sits above the diff, so unfold a collapsed card */
   const draftOnFile = () => {
-    if (collapsed) onToggle();
+    if (collapsed) onToggle(file.path);
     onDraft({ file: file.path, side: 'new', startLine: FILE_LEVEL, endLine: FILE_LEVEL });
   };
 
@@ -290,31 +429,41 @@ export function FileCard(props: Props) {
     setSpan({ ...span, to: index });
   };
 
-  const selectedRow = (index: number) =>
-    !!span && (dragging || !!mine) && index >= Math.min(span.from, span.to) && index <= Math.max(span.from, span.to);
+  const selectionOf = (index: number): Side | null =>
+    span && (dragging || !!mine) && index >= Math.min(span.from, span.to) && index <= Math.max(span.from, span.to) ? span.side : null;
 
   const composerRow = span && !dragging ? Math.max(span.from, span.to) : -1;
+  const colSpan = view === 'unified' ? 3 : 4;
 
   // file-level threads have endLine 0, which no diff row carries, so they never land in a row overlay
-  const threadsAt = (side: Side, no: number) =>
-    threads.filter((t) => t.status !== 'outdated' && t.side === side && t.endLine === no);
+  const threadsByLine = useMemo(() => {
+    const map = new Map<string, Thread[]>();
+    for (const thread of threads) {
+      if (thread.status === 'outdated' || isFileLevel(thread)) continue;
+      const key = lineKey(thread.side, thread.endLine);
+      const list = map.get(key) ?? [];
+      list.push(thread);
+      map.set(key, list);
+    }
+    return map;
+  }, [threads]);
   const fileThreads = threads.filter((t) => t.status !== 'outdated' && isFileLevel(t));
 
-  const gutterButton = (side: Side, no: number, index: number) => readOnly ? null : (
-    <button
-      className="add-comment"
-      title="Comment — drag down the gutter or shift-click to select more lines"
-      aria-label={`Comment on line ${no}`}
-      onMouseDown={(event) => startSelect(event, side, index)}
-    >
-      +
-    </button>
+  // rows are memoised on these; they must not change identity per render
+  const latest = useRef({ startSelect, extendSelect });
+  latest.current = { startSelect, extendSelect };
+  const handlers = useMemo<RowHandlers>(
+    () => ({
+      startSelect: (event, side, index) => latest.current.startSelect(event, side, index),
+      extendSelect: (index, expect) => latest.current.extendSelect(index, expect),
+    }),
+    [],
   );
 
   const overlay = (row: Row, colSpan: number) => {
     const items = [
-      ...(row.oldNo !== null ? threadsAt('old', row.oldNo) : []),
-      ...(row.newNo !== null ? threadsAt('new', row.newNo) : []),
+      ...(row.oldNo !== null ? threadsByLine.get(lineKey('old', row.oldNo)) ?? [] : []),
+      ...(row.newNo !== null ? threadsByLine.get(lineKey('new', row.newNo)) ?? [] : []),
     ];
     const showDraft = !!mine && !fileDraft && composerRow === row.index;
     if (items.length === 0 && !showDraft) return null;
@@ -334,92 +483,21 @@ export function FileCard(props: Props) {
     );
   };
 
-  const renderCode = (side: Side, no: number | null, text: string) => {
-    const line = no !== null ? tokens?.get(lineKey(side, no)) : undefined;
-    if (!line || line.length === 0) return <span className="code">{text === '' ? ' ' : text}</span>;
-    return (
-      <span className="code">
-        {line.map((token, index) => (
-          <span key={index} className="tok" style={token.style as React.CSSProperties}>
-            {token.text}
-          </span>
-        ))}
-      </span>
-    );
-  };
-
-  const unifiedRow = (row: Row) => {
-    const line = row.line!;
-    const side: Side = line.type === 'del' ? 'old' : 'new';
-    const no = numberOn(row, side);
-    const selected = selectedRow(row.index);
-    return (
-      <Fragment key={`u${row.index}`}>
-        <tr
-          className={`line ${line.type}${selected ? ' selected' : ''}`}
-          data-file={file.path}
-          data-scope={scope}
-          data-old={line.oldNo ?? undefined}
-          data-new={line.newNo ?? undefined}
-          onMouseEnter={() => extendSelect(row.index)}
-        >
-          <td className="num old" onMouseDown={(e) => no !== null && startSelect(e, side, row.index)}>
-            {no !== null && gutterButton(side, no, row.index)}
-            <span className="n">{line.oldNo ?? ''}</span>
-          </td>
-          <td className="num new" onMouseDown={(e) => no !== null && startSelect(e, side, row.index)}>
-            <span className="n">{line.newNo ?? ''}</span>
-          </td>
-          <td className="content">
-            <span className="marker">{line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' '}</span>
-            {renderCode(side, no, line.text)}
-          </td>
-        </tr>
-        {overlay(row, 3)}
-      </Fragment>
-    );
-  };
-
-  const splitRow = (row: Row) => {
-    const selected = selectedRow(row.index);
-    const leftSelected = selected && span?.side === 'old';
-    const rightSelected = selected && span?.side === 'new';
-    return (
-      <Fragment key={`s${row.index}`}>
-        <tr className="line split" data-file={file.path} data-scope={scope} data-old={row.oldNo ?? undefined} data-new={row.newNo ?? undefined}>
-          <td
-            className={`num old${leftSelected ? ' selected' : ''}`}
-            onMouseDown={(e) => row.oldNo !== null && startSelect(e, 'old', row.index)}
-            onMouseEnter={() => extendSelect(row.index, 'old')}
-          >
-            {row.oldNo !== null && row.left?.type === 'del' && gutterButton('old', row.oldNo, row.index)}
-            <span className="n">{row.oldNo ?? ''}</span>
-          </td>
-          <td
-            className={`content ${row.left ? row.left.type : 'filler'}${leftSelected ? ' selected' : ''}`}
-            onMouseEnter={() => extendSelect(row.index, 'old')}
-          >
-            {row.left ? renderCode('old', row.oldNo, row.left.text) : null}
-          </td>
-          <td
-            className={`num new${rightSelected ? ' selected' : ''}`}
-            onMouseDown={(e) => row.newNo !== null && startSelect(e, 'new', row.index)}
-            onMouseEnter={() => extendSelect(row.index, 'new')}
-          >
-            {row.newNo !== null && gutterButton('new', row.newNo, row.index)}
-            <span className="n">{row.newNo ?? ''}</span>
-          </td>
-          <td
-            className={`content ${row.right ? row.right.type : 'filler'}${rightSelected ? ' selected' : ''}`}
-            onMouseEnter={() => extendSelect(row.index, 'new')}
-          >
-            {row.right ? renderCode('new', row.newNo, row.right.text) : null}
-          </td>
-        </tr>
-        {overlay(row, 4)}
-      </Fragment>
-    );
-  };
+  const renderRow = (row: Row) => (
+    <DiffRow
+      key={row.index}
+      row={row}
+      view={view}
+      path={file.path}
+      scope={scope}
+      readOnly={readOnly}
+      selected={selectionOf(row.index)}
+      oldTokens={row.oldNo !== null ? tokens?.get(lineKey('old', row.oldNo)) : undefined}
+      newTokens={row.newNo !== null ? tokens?.get(lineKey('new', row.newNo)) : undefined}
+      handlers={handlers}
+      overlay={overlay(row, colSpan)}
+    />
+  );
 
   /**
    * The buttons on a hunk header. A short gap opens in one click; a long one
@@ -478,12 +556,11 @@ export function FileCard(props: Props) {
   };
 
   const outdated = threads.filter((t) => t.status === 'outdated');
-  const colSpan = view === 'unified' ? 3 : 4;
 
   return (
     <section className={`file-card${viewed ? ' is-viewed' : ''}`} id={cardId}>
       <header className="file-head">
-        <button className="btn invisible icon-only chevron" onClick={onToggle} aria-label={collapsed ? 'expand' : 'collapse'}>
+        <button className="btn invisible icon-only chevron" onClick={() => onToggle(file.path)} aria-label={collapsed ? 'expand' : 'collapse'}>
           {collapsed ? <ChevronRightIcon size={16} /> : <ChevronDownIcon size={16} />}
         </button>
         <span className="file-path">
@@ -517,7 +594,7 @@ export function FileCard(props: Props) {
           <span className="del">−{file.deletions}</span>
         </span>
         <label className="viewed-toggle" title="Mark as viewed and collapse">
-          <input type="checkbox" checked={viewed} onChange={onToggleViewed} />
+          <input type="checkbox" checked={viewed} onChange={() => onToggleViewed(file)} />
           Viewed
         </label>
       </header>
@@ -576,22 +653,20 @@ export function FileCard(props: Props) {
                   <Fragment key={`h${hunkIndex}`}>
                     <tr className="hunk-head">
                       <td className="hunk-num" colSpan={view === 'unified' ? 2 : 1}>
-                        {expander(gaps.find((g) => g.before === hunkIndex))}
+                        {expander(gapBefore.get(hunkIndex))}
                       </td>
                       <td colSpan={view === 'unified' ? 1 : 3}>
                         @@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},{hunk.newLines} @@
                         {hunk.section && <span className="section"> {hunk.section}</span>}
                       </td>
                     </tr>
-                    {rows
-                      .filter((row) => row.hunkIndex === hunkIndex)
-                      .map((row) => (view === 'unified' ? unifiedRow(row) : splitRow(row)))}
+                    {rowsByHunk[hunkIndex].map(renderRow)}
                   </Fragment>
                 ))}
-                {gaps.some((g) => g.before === shown.hunks.length) && (
+                {gapBefore.has(shown.hunks.length) && (
                   <tr className="hunk-head tail">
                     <td className="hunk-num" colSpan={view === 'unified' ? 2 : 1}>
-                      {expander(gaps.find((g) => g.before === shown.hunks.length))}
+                      {expander(gapBefore.get(shown.hunks.length))}
                     </td>
                     <td colSpan={view === 'unified' ? 1 : 3} />
                   </tr>
@@ -603,4 +678,4 @@ export function FileCard(props: Props) {
       )}
     </section>
   );
-}
+});

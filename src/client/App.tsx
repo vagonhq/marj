@@ -46,6 +46,9 @@ function remember(key: string, value: string): void {
   }
 }
 
+/** shared by every card without threads, so a memoised card sees the same prop each time */
+const NO_THREADS: Thread[] = [];
+
 /** "Viewed" is cleared when the file changes again, like it is on GitHub. */
 const signatureOf = (file: DiffFile) => `${file.additions}:${file.deletions}:${file.hunks.length}`;
 
@@ -147,11 +150,29 @@ export function App() {
   const alertsRef = useRef(alerts);
   alertsRef.current = alerts;
   const toastId = useRef(0);
+  /** last payload's files by path with their JSON, so unchanged files keep their identity across reloads */
+  const fileCache = useRef(new Map<string, { json: string; file: DiffFile }>());
 
   const loadDiff = useCallback(async () => {
     try {
       const payload = await api.diff();
-      setDiff(payload);
+
+      // the diff reloads on every save while Claude works; a card whose file did not
+      // change must get the very same object back, or every card re-renders and re-highlights
+      const cache = fileCache.current;
+      const next = new Map<string, { json: string; file: DiffFile }>();
+      const order = [...cache.keys()];
+      let unchanged = cache.size === payload.files.length;
+      payload.files = payload.files.map((file, index) => {
+        const json = JSON.stringify(file);
+        const previous = cache.get(file.path);
+        const kept = previous && previous.json === json ? previous.file : file;
+        if (kept !== previous?.file || order[index] !== file.path) unchanged = false;
+        next.set(file.path, { json, file: kept });
+        return kept;
+      });
+      fileCache.current = next;
+      setDiff((current) => (current && unchanged ? { ...payload, files: current.files } : payload));
 
       if (!collapsedInitialised.current) {
         collapsedInitialised.current = true;
@@ -335,14 +356,17 @@ export function App() {
 
   const pending = threads.filter((t) => t.status !== 'resolved' && t.messages.at(-1)?.role === 'user').length;
 
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const submitDraft = useCallback(
     async (body: string, intent: Intent) => {
-      if (!draft) return;
-      await api.createThread({ ...draft, body, intent });
+      const target = draftRef.current;
+      if (!target) return;
+      await api.createThread({ ...target, body, intent });
       setDraft(null);
       void loadThreads();
     },
-    [draft, loadThreads],
+    [loadThreads],
   );
 
   const toggleFile = useCallback((path: string) => {
@@ -410,8 +434,10 @@ export function App() {
   }
 
   // the cards follow the sidebar's order (folders first, alphabetical), not raw path order
-  const files = useMemo(() => flattenTree(buildTree(diff?.files ?? [])), [diff]);
-  const locationIndex = useMemo(() => buildLocationIndex(files.map((f) => f.path)), [files]);
+  const files = useMemo(() => flattenTree(buildTree(diff?.files ?? [])), [diff?.files]);
+  // keyed on the paths, not the array: a reload that changed one file must not rebuild every card's links
+  const pathsKey = files.map((f) => f.path).join('\n');
+  const locationIndex = useMemo(() => buildLocationIndex(pathsKey ? pathsKey.split('\n') : []), [pathsKey]);
   const totals = files.reduce((acc, f) => ({ add: acc.add + f.additions, del: acc.del + f.deletions }), { add: 0, del: 0 });
   const progress = files.length ? Math.round((viewed.size / files.length) * 100) : 0;
 
@@ -547,12 +573,12 @@ export function App() {
               key={file.path}
               file={file}
               view={view}
-              threads={threadsByFile.get(file.path) ?? []}
+              threads={threadsByFile.get(file.path) ?? NO_THREADS}
               author={diff?.author ?? 'you'}
               collapsed={collapsed.has(file.path)}
               viewed={viewed.has(file.path)}
-              onToggle={() => toggleFile(file.path)}
-              onToggleViewed={() => toggleViewed(file)}
+              onToggle={toggleFile}
+              onToggleViewed={toggleViewed}
               draft={draft && draft.file === file.path ? draft : null}
               onDraft={setDraft}
               onSubmitDraft={submitDraft}

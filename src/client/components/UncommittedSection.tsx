@@ -21,6 +21,7 @@ interface Props {
 
 const noop = () => {};
 const noopAsync = async () => {};
+const NO_THREADS: never[] = [];
 
 /**
  * What is not committed yet, independent of what is being reviewed: the fixes
@@ -164,11 +165,11 @@ export function UncommittedSection({ state, author, view, locationIndex, onChang
                     key={file.path}
                     file={file}
                     view={view}
-                    threads={[]}
+                    threads={NO_THREADS}
                     author={author}
                     collapsed={collapsedFor(file.path)}
                     viewed={false}
-                    onToggle={() => flip(file.path)}
+                    onToggle={flip}
                     onToggleViewed={noop}
                     draft={null}
                     onDraft={noop}
