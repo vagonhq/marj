@@ -1,5 +1,5 @@
 import { AlertIcon, ChevronDownIcon, ChevronRightIcon, GitCommitIcon, SparkleFillIcon } from '@primer/octicons-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { WorktreeState } from '../../shared/types';
 import { api } from '../api.js';
 import type { LocationIndex } from '../locations.js';
@@ -21,6 +21,7 @@ interface Props {
 
 const noop = () => {};
 const noopAsync = async () => {};
+const NO_THREADS: never[] = [];
 
 /**
  * What is not committed yet, independent of what is being reviewed: the fixes
@@ -50,6 +51,17 @@ export function UncommittedSection({ state, author, view, locationIndex, onChang
     }
   }, [open]);
 
+  const flip = useCallback(
+    (path: string) =>
+      setFlipped((current) => {
+        const next = new Set(current);
+        if (next.has(path)) next.delete(path);
+        else next.add(path);
+        return next;
+      }),
+    [],
+  );
+
   if (!state) return null;
   const { files, branch, reviewedBranch, onReviewedBranch, pr } = state;
   const touched = new Set(state.touched);
@@ -57,13 +69,6 @@ export function UncommittedSection({ state, author, view, locationIndex, onChang
 
   // this review's fixes open, older local edits folded; a click flips either
   const collapsedFor = (path: string) => (touched.has(path) ? flipped.has(path) : !flipped.has(path));
-  const flip = (path: string) =>
-    setFlipped((current) => {
-      const next = new Set(current);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
 
   const commit = async (push: boolean) => {
     if (!message.trim() || busy) return;
@@ -164,11 +169,11 @@ export function UncommittedSection({ state, author, view, locationIndex, onChang
                     key={file.path}
                     file={file}
                     view={view}
-                    threads={[]}
+                    threads={NO_THREADS}
                     author={author}
                     collapsed={collapsedFor(file.path)}
                     viewed={false}
-                    onToggle={() => flip(file.path)}
+                    onToggle={flip}
                     onToggleViewed={noop}
                     draft={null}
                     onDraft={noop}

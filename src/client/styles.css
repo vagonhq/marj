@@ -323,8 +323,13 @@ body.resizing iframe, body.resizing .stream { pointer-events: none; }
   border: 1px solid var(--borderColor-default);
   border-radius: var(--borderRadius-medium);
   overflow: hidden;
+  /* cards off screen skip layout and paint; the browser keeps their last size for the scrollbar */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 400px;
 }
 .file-card.is-viewed { opacity: 0.85; }
+/* a card scrolled far away keeps its height but none of its rows */
+.file-body.placeholder { background: var(--bgColor-default); }
 .file-head {
   display: flex;
   align-items: center;
