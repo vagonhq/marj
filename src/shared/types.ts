@@ -50,6 +50,8 @@ export interface DiffPayload {
   computedAt: string;
   /** git config user.name, for the reviewer's avatar */
   author: string;
+  /** a caveat about how the diff was built, e.g. `gh` was missing so a PR's base is a guess */
+  notice?: string;
 }
 
 export type Role = 'user' | 'agent';
@@ -163,6 +165,10 @@ export interface ServerInfo {
   id?: string;
   /** marj version of the hub serving it */
   version?: string;
+  /** a caveat about the review target, shown to the user at start */
+  notice?: string;
+  /** the process this review ends with (the Claude session that started it), when tied to one */
+  ownerPid?: number;
 }
 
 /** What is in the working tree but not in HEAD — the fixes of this review, plus anything else uncommitted. */
@@ -181,20 +187,19 @@ export interface WorktreeState {
   version: number;
 }
 
-/** One marj server (or a repo with saved reviews but no server), for the repo switcher. */
+/** One running marj server, for the repo switcher. */
 export interface ServerListing {
-  /** hub mount id (/r/<id>) when it is being served, null for a stopped repo */
-  id: string | null;
+  /** hub mount id (/r/<id>) */
+  id: string;
   /** repo folder name, e.g. "vagon-frontend" or a worktree's folder */
   name: string;
   repoRoot: string;
   /** the isolated session, if any */
   session: string | null;
-  /** what it is reviewing, e.g. "develop...feature (working tree)"; empty when not running */
+  /** what it is reviewing, e.g. "develop...feature (working tree)" */
   mode: string;
-  /** browser URL when a server is up */
-  url: string | null;
-  live: boolean;
+  /** browser URL of that review */
+  url: string;
   /** the server the browser is talking to right now */
   current: boolean;
   /** git branch checked out there, when known */

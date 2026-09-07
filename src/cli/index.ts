@@ -6,7 +6,8 @@ import { findLiveHub, GitError, LEGACY_DIR, normaliseSession, repoStateBase, sta
 import { VERSION } from '../server/version.js';
 import { repoRootOf } from '../server/git.js';
 import { findServer, MarjClient, NoServerError } from './api.js';
-import { describeTarget, FILE_LEVEL, isChat, isFileLevel, type AgentEvent, type Thread } from '../shared/types.js';
+import { pidAlive, strayMarjProcesses, terminate, type MarjProcess } from './procs.js';
+import { describeTarget, FILE_LEVEL, isChat, isFileLevel, type AgentEvent, type ServerInfo, type Thread } from '../shared/types.js';
 
 const HELP = `marj — review local git changes in your browser, with your Claude Code session in the thread
 
@@ -22,7 +23,8 @@ Usage
   marj comment <file> <text>      open a thread on the file as a whole
   marj resolve <id>               mark a thread resolved
   marj delete <id>...             delete threads permanently
-  marj stop [--all]               end this repo's review; --all stops the hub and every review on it
+  marj stop [--all]               end this repo's review; --all stops the hub, every review on it, and any
+                                  stray marj process (old standalone servers, orphaned watches)
   marj commit -m <msg> [--push] [path...]   commit the uncommitted changes (all, or just these paths)
   marj reload                     sync from the remote (fetch, re-pull a PR) and refresh the diff
   marj reset                      end every review of this repo and delete all its threads/chat
@@ -53,6 +55,9 @@ Options
   --context <n>    diff context lines (default 5)
   --no-open        do not open a browser (--json implies this; --open forces it)
   --force          a second, isolated review of a repo already under review
+  --owner <pid>    end the review when this process exits (default: the Claude Code session
+                   running marj, from $CLAUDE_PID; a review started by hand has no owner)
+  --detach         keep the review running after the Claude session that started it ends
   --no-watch       do not refresh when files change
   --json           machine readable output
   --pending        (threads) only unanswered threads
@@ -77,7 +82,7 @@ interface Args {
 function parseArgs(argv: string[]): Args {
   const flags: Record<string, string | boolean> = {};
   const positional: string[] = [];
-  const withValue = new Set(['port', 'host', 'context', 'cursor', 'side', 'timeout', 'session', 'message']);
+  const withValue = new Set(['port', 'host', 'context', 'cursor', 'side', 'timeout', 'session', 'message', 'owner']);
 
   // `npx pkg -- args` hands the literal `--` on to us; a leading one is not ours
   if (argv[0] === '--') argv = argv.slice(1);
@@ -138,6 +143,18 @@ function whereIs(target: Pick<Thread, 'id' | 'file' | 'startLine' | 'endLine'>):
   return isFileLevel(target) ? `${target.file} (whole file)` : describeTarget(target);
 }
 
+/**
+ * The process a new review is tied to. Inside Claude Code that is the session
+ * itself ($CLAUDE_PID), so the review ends when the conversation does instead
+ * of lingering as a background server; `--detach` opts out, `--owner` overrides.
+ */
+function ownerOf(flags: Args['flags']): number | undefined {
+  if (flags.detach === true) return undefined;
+  if (flags.owner !== undefined) return num(flags.owner, 0) || undefined;
+  const fromEnv = Number(process.env.CLAUDE_PID);
+  return Number.isInteger(fromEnv) && fromEnv > 0 ? fromEnv : undefined;
+}
+
 async function cmdServe(args: Args): Promise<void> {
   // stdin is only consumed when explicitly asked for with `-`, so running in
   // the background (no tty) does not hang waiting for input
@@ -165,6 +182,7 @@ async function cmdServe(args: Args): Promise<void> {
     watch: args.flags.watch !== false,
     session: sessionOf(args.flags),
     force: args.flags.force === true,
+    ownerPid: ownerOf(args.flags),
   });
   const { info } = running;
 
@@ -174,12 +192,18 @@ async function cmdServe(args: Args): Promise<void> {
     const tag = info.session ? `  [session ${info.session}]` : '';
     const sess = info.session ? ` --session ${info.session}` : '';
     console.log(`${info.reused ? 'already reviewing → ' : 'marj → '}${info.url}  (${info.mode})${tag}`);
+    if (info.notice) console.error(`warning: ${info.notice}`);
+    if (info.ownerPid) console.log(`ends with the session that started it (pid ${info.ownerPid}); \`marj --detach\` keeps it running`);
     if (running.hubSpawned) {
       console.log(`hub started in the background at ${info.url.replace(/\/r\/.*$/, '')} — every repo shares it; \`marj stop --all\` shuts it down`);
     }
     if (running.hubUpgraded) {
       const { from, to, carried } = running.hubUpgraded;
       console.log(`hub upgraded ${from} → ${to}; ${carried} other review${carried === 1 ? '' : 's'} carried over`);
+    }
+    if (running.hubHealed) {
+      const { reason, carried } = running.hubHealed;
+      console.log(`hub restarted: it could not run git any more (${reason}); ${carried} other review${carried === 1 ? '' : 's'} carried over`);
     }
     if (running.hubOutdated) {
       const { hubVersion, cliVersion } = running.hubOutdated;
@@ -204,6 +228,7 @@ async function cmdHub(args: Args): Promise<void> {
     port: args.flags.port ? num(args.flags.port, 4711) : undefined,
     host: typeof args.flags.host === 'string' ? args.flags.host : undefined,
     exitWhenEmpty: args.flags['exit-when-empty'] !== false,
+    selfHeal: true,
   });
   console.log(`marj hub → ${info.url}  (pid ${info.pid}); run \`marj\` inside a repo to add it`);
   const shutdown = async () => {
@@ -215,10 +240,31 @@ async function cmdHub(args: Args): Promise<void> {
   process.on('SIGTERM', () => void shutdown());
 }
 
+/**
+ * After a failed request: is the server we watch gone for good, and why? Null means
+ * "maybe restarting, try again". server.json vanishing is definitive; a dead hub pid
+ * after a few failures too (a hub upgrade rewrites server.json within a second or two).
+ * With --port there is only the socket to go on, so it gets a longer benefit of the doubt.
+ */
+async function watchedServerGone(flags: Args['flags'], failures: number): Promise<string | null> {
+  let info: ServerInfo;
+  try {
+    info = await findServer(process.cwd(), flags.port ? num(flags.port, 0) : undefined, sessionOf(flags));
+  } catch (err) {
+    return err instanceof NoServerError ? err.message : null;
+  }
+  if (info.pid > 0) {
+    if (pidAlive(info.pid)) return null;
+    return failures >= 3 ? `the marj hub (pid ${info.pid}) that served ${info.repoRoot} is not running` : null;
+  }
+  return failures >= 5 ? `nothing answers at ${info.url}` : null;
+}
+
 async function cmdWatch(args: Args): Promise<void> {
   const timeout = num(args.flags.timeout, 60);
   let client: MarjClient | null = null;
   let cursor = args.flags.cursor !== undefined ? num(args.flags.cursor, 0) : -1;
+  let failures = 0;
 
   for (;;) {
     try {
@@ -231,6 +277,7 @@ async function cmdWatch(args: Args): Promise<void> {
         }
       }
       const result = await client.wait(cursor, timeout);
+      failures = 0;
       for (const event of result.events) console.log(formatEvent(event));
       cursor = Math.max(cursor, result.cursor);
     } catch (err) {
@@ -238,7 +285,12 @@ async function cmdWatch(args: Args): Promise<void> {
         console.log(`SERVER GONE — ${err.message}`);
         return;
       }
-      // transient: the server may be restarting
+      // transient: the server may be restarting — but do not spin forever against one that is dead
+      const gone = await watchedServerGone(args.flags, ++failures);
+      if (gone) {
+        console.log(`SERVER GONE — ${gone}`);
+        return;
+      }
       client = null;
       await new Promise((r) => setTimeout(r, 2000));
     }
@@ -347,17 +399,45 @@ async function cmdDelete(args: Args): Promise<void> {
   }
 }
 
-async function cmdStop(args: Args): Promise<void> {
-  if (args.flags.all === true) {
-    const hub = await findLiveHub();
-    if (!hub) {
-      console.log('no marj hub is running');
-      return;
-    }
+/**
+ * `marj stop --all`: the hub first, gracefully, so every review unregisters and the
+ * port comes free; then a sweep of whatever else is marj on this machine — standalone
+ * servers from pre-hub versions, a hub whose hub.json got overwritten, `marj watch`
+ * loops whose server died — which no hub.json knows about.
+ */
+async function cmdStopAll(args: Args): Promise<void> {
+  const hub = await findLiveHub();
+  if (hub) {
     process.kill(hub.pid, 'SIGTERM');
-    console.log(`stopped the marj hub (pid ${hub.pid}) and every review on it`);
+    // wait for the process itself: closing many watchers takes a moment, and the
+    // next `marj` must find the port free or it will come up on another one
+    for (let i = 0; i < 80 && pidAlive(hub.pid); i++) await new Promise((r) => setTimeout(r, 100));
+  }
+  const strays = await strayMarjProcesses();
+  const forced = await terminate(strays.map((p) => p.pid));
+
+  if (args.flags.json) {
+    console.log(JSON.stringify({ hub: hub ? { pid: hub.pid, url: hub.url } : null, strays, forced }));
     return;
   }
+  if (hub) console.log(`stopped the marj hub (pid ${hub.pid}) and every review on it`);
+  if (strays.length > 0) {
+    const kinds: Record<MarjProcess['kind'], string> = { hub: 'hub', watch: 'watch', server: 'server' };
+    const summary = (Object.keys(kinds) as MarjProcess['kind'][])
+      .map((kind) => ({ kind, n: strays.filter((p) => p.kind === kind).length }))
+      .filter(({ n }) => n > 0)
+      .map(({ kind, n }) => `${n} ${kinds[kind]}${n === 1 ? '' : kind === 'watch' ? 'es' : 's'}`)
+      .join(', ');
+    const pids = strays.map((p) => p.pid).join(', ');
+    console.log(`${hub ? 'also ' : ''}stopped ${strays.length} stray marj process${strays.length === 1 ? '' : 'es'} the hub did not know about (${summary}; pid ${pids})`);
+    if (forced.length > 0) console.log(`${forced.length} of them ignored SIGTERM and had to be killed (pid ${forced.join(', ')})`);
+  } else if (!hub) {
+    console.log('no marj hub is running, and no stray marj process was found');
+  }
+}
+
+async function cmdStop(args: Args): Promise<void> {
+  if (args.flags.all === true) return cmdStopAll(args);
   const info = await findServer(process.cwd(), args.flags.port ? num(args.flags.port, 0) : undefined, sessionOf(args.flags));
   const id = info.id ?? info.url.match(/\/r\/([^/]+)/)?.[1];
   if (!id) throw new Error('that server.json predates the hub; use `marj stop --all`');

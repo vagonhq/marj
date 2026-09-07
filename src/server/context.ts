@@ -45,6 +45,8 @@ export interface ContextOptions {
   watch: boolean;
   /** the hub asks this for the repo switcher; the context adds which entry is itself */
   listServers: (currentId: string) => Promise<ServerListing[]>;
+  /** a diff refresh threw; the hub uses this to notice it can no longer spawn processes */
+  onRefreshError?: (err: unknown) => void;
 }
 
 /**
@@ -60,6 +62,7 @@ export interface RepoContext {
   startedAt: string;
   router: express.Router;
   mode(): string;
+  notice(): string | undefined;
   close(): Promise<void>;
 }
 
@@ -111,7 +114,12 @@ export async function createRepoContext(opts: ContextOptions): Promise<RepoConte
       await reanchorAll(store, diff, linesFor);
       broadcast({ type: 'diff:changed', version: diff.version });
     } catch (err) {
-      console.error(`[marj] ${id}: diff refresh failed:`, (err as Error).message);
+      const message = (err as Error).message;
+      console.error(`[marj] ${id}: diff refresh failed:`, message);
+      opts.onRefreshError?.(err);
+      // keep the last good diff, but say in the header that it is stale and why
+      diff = { ...diff, notice: `the diff could not be refreshed and may be stale: ${message}` };
+      broadcast({ type: 'diff:changed', version: diff.version });
     }
   };
 
@@ -326,6 +334,7 @@ export async function createRepoContext(opts: ContextOptions): Promise<RepoConte
     startedAt: startedAt.toISOString(),
     router,
     mode: () => diff.mode,
+    notice: () => diff.notice,
     close: async () => {
       stopWatching();
       store.close();

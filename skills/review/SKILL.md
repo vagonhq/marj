@@ -50,6 +50,13 @@ open <url>            # macOS; xdg-open elsewhere
 
 If `reused` is true the repo was already under review; the URL is the existing one.
 
+The review belongs to **this** Claude Code session: `marj` reads `$CLAUDE_PID` and the hub ends
+the review — and exits when nothing else is left — as soon as this session exits. Nothing lingers
+in the background after the conversation. Never start `marj` again just because a server went
+away (`SERVER GONE` from the watch, a dead URL): that was either the user stopping it or a
+session ending, and both are final unless the user asks for a new review. Only when the user
+explicitly wants a review to outlive the session, add `--detach`.
+
 Targets: `marj` (working tree vs HEAD, the default), `marj --staged`, `marj <commit>`,
 `marj develop` (the current branch as a PR into develop), `marj develop..feature`, `marj <a> <b>`,
 and a GitHub pull request: `marj https://github.com/o/r/pull/12`, `marj o/r#12`, `marj #12`
@@ -253,5 +260,8 @@ Give the Monitor a description naming the session so its notifications are disti
 ## 6. Finish
 
 `marj stop` ends this repo's review (the hub exits by itself once the last one ends; `marj stop --all`
-stops everything). The threads stay in `~/.marj/repos/<repo>-<hash>/threads.json` — outside the repo — so a later
-`marj` in the same repo brings the whole conversation back.
+stops everything, including stray marj processes older versions left behind). The `stop` skill has
+the details. The threads stay in `~/.marj/repos/<repo>-<hash>/threads.json` — outside the repo — so a
+later `marj` in the same repo brings the whole conversation back. Your `marj watch` Monitor prints
+`SERVER GONE` and exits on its own once the review is stopped; do not re-arm it, and do not start
+`marj` again on your own. When this session ends, the hub ends the review by itself.

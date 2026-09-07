@@ -46,6 +46,8 @@ export interface DiffTarget {
   reviewedBranch?: string | null;
   /** pull request number when the review is of a PR */
   pr?: number;
+  /** something the reviewer should know about how this target was built, e.g. `gh` was missing so the PR base is a guess */
+  notice?: string;
 }
 
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
@@ -157,13 +159,34 @@ async function remoteFor(cwd: string, repo: string | null): Promise<string> {
   return 'origin';
 }
 
+/**
+ * The remote's default branch: from refs/remotes/<remote>/HEAD when the repo was
+ * cloned, else by asking the remote (a `git remote add` never sets that ref).
+ */
 async function defaultBranch(cwd: string, remote: string): Promise<string> {
   try {
     const ref = (await git(cwd, ['symbolic-ref', '--quiet', `refs/remotes/${remote}/HEAD`])).trim();
     return ref.replace(`refs/remotes/${remote}/`, '');
   } catch {
-    return 'main';
+    /* not a clone, or origin/HEAD was never set */
   }
+  try {
+    const out = await git(cwd, ['ls-remote', '--symref', remote, 'HEAD']);
+    const m = out.match(/^ref: refs\/heads\/(\S+)\tHEAD$/m);
+    if (m) return m[1];
+  } catch {
+    /* offline or no such remote: guess */
+  }
+  return 'main';
+}
+
+/** Why `gh pr view` did not answer, in words the reviewer can act on. */
+function describeGhFailure(err: unknown): string {
+  const e = err as { code?: string; stderr?: string; message?: string };
+  if (e.code === 'ENOENT') return 'the GitHub CLI (`gh`) is not installed';
+  const detail = (e.stderr || e.message || 'gh failed').trim().split('\n')[0];
+  if (/auth login|not logged|authentication/i.test(detail)) return 'the GitHub CLI (`gh`) is not logged in';
+  return `\`gh pr view\` failed: ${detail}`;
 }
 
 /**
@@ -171,7 +194,7 @@ async function defaultBranch(cwd: string, remote: string): Promise<string> {
  * for the base branch and title (falling back to the remote's default branch),
  * and diff from the merge base exactly like the PR page does.
  */
-async function pullRequestTarget(cwd: string, pr: PullRequestRef, exact: boolean): Promise<DiffTarget> {
+async function pullRequestTarget(cwd: string, pr: PullRequestRef, exact: boolean, gh = 'gh'): Promise<DiffTarget> {
   const remote = await remoteFor(cwd, pr.repo);
   const head = `refs/marj/pr/${pr.number}`;
   try {
@@ -183,16 +206,20 @@ async function pullRequestTarget(cwd: string, pr: PullRequestRef, exact: boolean
   let base = '';
   let title = '';
   let branch = '';
+  let notice: string | undefined;
   try {
     const args = ['pr', 'view', String(pr.number), '--json', 'baseRefName,headRefName,title'];
     if (pr.repo) args.push('--repo', pr.repo);
-    const { stdout } = await exec('gh', args, { cwd, maxBuffer: MAX_BUFFER });
+    const { stdout } = await exec(gh, args, { cwd, maxBuffer: MAX_BUFFER });
     const info = JSON.parse(stdout) as { baseRefName: string; headRefName: string; title: string };
     base = info.baseRefName;
     title = info.title;
     branch = info.headRefName;
-  } catch {
+  } catch (err) {
+    // no gh: the diff can still be built, but only against a guessed base, and
+    // without the head branch there is nothing to check out for fixes. Say so.
     base = await defaultBranch(cwd, remote);
+    notice = `${describeGhFailure(err)}, so PR #${pr.number} is diffed against ${remote}/${base} (a guess) and its branch is unknown — fixes cannot be checked out onto it`;
   }
   await git(cwd, ['fetch', '--quiet', remote, base]).catch(() => {});
 
@@ -209,6 +236,7 @@ async function pullRequestTarget(cwd: string, pr: PullRequestRef, exact: boolean
     refetch,
     reviewedBranch: branch || null,
     pr: pr.number,
+    ...(notice ? { notice } : {}),
   };
 }
 
@@ -354,7 +382,7 @@ export async function readSideFile(repoRoot: string, target: DiffTarget, side: '
 export async function resolveTarget(
   cwd: string,
   positional: string[],
-  opts: { staged?: boolean; exact?: boolean } = {},
+  opts: { staged?: boolean; exact?: boolean; gh?: string } = {},
 ): Promise<DiffTarget> {
   if (opts.staged) {
     return { args: ['--cached'], mode: 'staged changes', includeUntracked: false, oldRev: 'HEAD', newRev: ':' };
@@ -372,7 +400,7 @@ export async function resolveTarget(
     const arg = positional[0];
     if (arg === '.') return { args: [], mode: 'unstaged changes', includeUntracked: true, oldRev: ':', newRev: null };
     const pr = parsePullRequest(arg);
-    if (pr) return pullRequestTarget(cwd, pr, exact);
+    if (pr) return pullRequestTarget(cwd, pr, exact, opts.gh);
     if (arg.includes('...')) {
       const [a, b] = arg.split('...');
       return rangeTarget(cwd, a || 'HEAD', b || 'HEAD', false);
@@ -461,6 +489,7 @@ export async function computeDiff(
     version: ++versionCounter,
     computedAt: new Date().toISOString(),
     author: await authorName(repoRoot),
+    ...(target.notice ? { notice: target.notice } : {}),
   };
 }
 
