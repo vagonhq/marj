@@ -126,6 +126,32 @@ describe('pull request references', () => {
   });
 });
 
+describe('reviewing a pull request without the GitHub CLI', () => {
+  /** a bare "GitHub": main plus the feature branch published as refs/pull/1/head */
+  let remote: string;
+  beforeAll(async () => {
+    remote = await fs.mkdtemp(path.join(os.tmpdir(), 'marj-remote-'));
+    execFileSync('git', ['init', '-q', '--bare', '-b', 'main', remote]);
+    run('remote', 'add', 'origin', remote);
+    run('push', '-q', 'origin', 'main', 'feature:refs/pull/1/head');
+  });
+  afterAll(async () => {
+    run('remote', 'remove', 'origin');
+    await fs.rm(remote, { recursive: true, force: true });
+  });
+
+  it('still shows the PR against the default branch, and says gh is missing', async () => {
+    const target = await resolveTarget(repo, ['#1'], { gh: 'gh-that-does-not-exist' });
+    expect(target.args).toEqual(['origin/main...refs/marj/pr/1']);
+    expect(target.pr).toBe(1);
+    expect(target.reviewedBranch).toBeNull();
+    expect(target.notice).toMatch(/`gh`.*not installed.*origin\/main/);
+    const diff = await computeDiff(repo, target, 3);
+    expect(diff.files.map((f) => `${f.status}:${f.path}`)).toEqual(['added:feature.txt']);
+    expect(diff.notice).toBe(target.notice);
+  });
+});
+
 describe('the working tree and committing it', () => {
   it('worktreeTarget lists uncommitted edits plus untracked files, independent of the review', async () => {
     const { worktreeTarget, touchedSince } = await import('../src/server/git.js');

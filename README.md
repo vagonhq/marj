@@ -50,7 +50,7 @@ Claude starts the server, opens the browser, and starts watching. Every comment 
 
 Nothing to install beyond **Node ≥ 20** — the plugin puts `marj` on your PATH and fetches the CLI from npm on first use.
 
-The plugin adds four commands:
+The plugin adds five commands:
 
 | Command | What it does |
 | --- | --- |
@@ -58,6 +58,7 @@ The plugin adds four commands:
 | `/marj:commit` | Claude writes a commit message from the diff, commits the review's fixes and pushes |
 | `/marj:reload` | fetch from the remote (re-pull a PR head) and refresh the diff, keeping every thread |
 | `/marj:reset` | end every review of the repo, wipe all its threads and chat, start clean |
+| `/marj:stop [--all]` | end this repo's review, keeping its threads; `--all` shuts down the hub and every stray marj process |
 
 ### Where to run it
 
@@ -124,17 +125,20 @@ marj reply chat <<'EOF'   # answer the "Explain these changes" panel
 marj commit --push -m "…"   # /marj:commit — commit (and push) the uncommitted changes
 marj reload                 # /marj:reload — fetch from the remote and refresh the diff
 marj reset                  # /marj:reset  — stop every server and wipe .marj (start over)
+marj stop [--all]           # /marj:stop   — end this review (threads kept); --all stops the hub and every stray marj process
 ```
 
 ## Several reviews at once
 
 **One hub, one port, every repo.** The first `marj` starts a small background hub on `127.0.0.1:4711`; every later `marj` — another repo, a worktree, a second clone — registers with it and returns at once, no new process, no new port. Each review lives at `http://127.0.0.1:4711/r/<repo>/`, with its own threads, chat and file watcher; state sits outside the repo in `~/.marj/repos/<repo>-<hash>/`. Running `marj` again in a repo already under review just reuses it.
 
-**Switching between them:** the repo name at the top left is a menu of every repo and worktree marj knows about — frontend, backend, a worktree of either. Pick one and the tab moves to that review, showing only its diff. Repos with saved reviews that aren't registered right now are listed greyed out, so you can see where to run `marj`.
+**Switching between them:** the repo name at the top left is a menu of every repo and worktree marj is serving right now — frontend, backend, a worktree of either. Pick one and the tab moves to that review, showing only its diff.
 
-`marj stop` ends one repo's review; when the last one ends, the hub exits on its own. `marj stop --all` shuts everything down at once. The hub's log is `~/.marj/hub.log`.
+`marj stop` ends one repo's review; when the last one ends, the hub exits on its own. `marj stop --all` shuts everything down at once — the hub and every review on it, and then a sweep of any marj process the hub does not know about: standalone servers left by versions before the hub, an orphaned hub, `marj watch` loops whose server is long gone. Only your own processes are touched, never the shell or agent that ran it. The hub's log is `~/.marj/hub.log`.
 
-**Which version am I on?** The header shows it next to the logo (`v0.1.4`), and `marj version` (or `marj --version`) prints the CLI's version plus the running hub's when they differ. Plugin users always get the latest release on the next `marj` start (via `npx @latest`, a few minutes after publish); a hub left running from an older version is replaced automatically the next time you run `marj`, and every review it was serving is re-registered on the new one, so nothing goes dark.
+**Does it linger after the conversation?** No. A review started from Claude Code is tied to that session (`$CLAUDE_PID`): when the session exits, the hub ends the review, and exits itself once nothing is left. A review you start by hand has no owner and stays until `marj stop`; `--detach` gives a Claude-started one the same freedom, `--owner <pid>` ties it to any process.
+
+**Which version am I on?** The header shows it next to the logo (`v0.1.4`), and `marj version` (or `marj --version`) prints the CLI's version plus the running hub's when they differ. Plugin users always get the latest release on the next `marj` start (via `npx @latest`, a few minutes after publish); a hub left running from an older version is replaced automatically the next time you run `marj`, and every review it was serving is re-registered on the new one, so nothing goes dark. The same happens to a hub that can no longer run git (`/api/hub` reports `healthy: false`): it hands its reviews to a fresh hub on the same port by itself, and the next `marj` replaces it too. A page whose hub is gone says so in a banner and reconnects on its own — to a newer hub by reloading, so the UI matches.
 
 To review two things side by side — a second branch, a PR, a clean slate — start an **isolated session** with its own threads, chat and port. It shares nothing, and starting one never stops the others:
 

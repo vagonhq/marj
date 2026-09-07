@@ -119,6 +119,9 @@ button { font: inherit; cursor: pointer; }
 .label.deleted { color: var(--fgColor-danger); border-color: var(--borderColor-danger-emphasis); }
 .label.renamed { color: var(--fgColor-accent); border-color: var(--borderColor-accent-emphasis); }
 .label.pulse { animation: blink 1.4s ease-in-out infinite; }
+.label.attention { color: var(--fgColor-attention); border-color: var(--borderColor-attention-emphasis); }
+.label.notice { max-width: 40ch; }
+.label.notice > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @keyframes blink { 50% { opacity: 0.45; } }
 
 .counter {
@@ -139,6 +142,18 @@ button { font: inherit; cursor: pointer; }
 
 .app { display: flex; flex-direction: column; height: 100vh; }
 
+.offline {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  font-size: 13px;
+  color: var(--fgColor-attention);
+  background: var(--bgColor-attention-muted);
+  border-bottom: 1px solid var(--borderColor-attention-emphasis);
+}
+.offline code { font-family: var(--font-mono); font-size: 12px; }
 .pagehead {
   flex: none;
   background: var(--bgColor-default);
@@ -805,7 +820,6 @@ tr.line.flash td { animation: flash-row 1.6s ease-out; }
 }
 .repo-menu-item:hover:not(:disabled) { background: var(--bgColor-neutral-muted); }
 .repo-menu-item.current { color: var(--fgColor-accent); cursor: default; }
-.repo-menu-item.dead { color: var(--fgColor-muted); cursor: default; }
 .repo-menu-check { width: 14px; display: inline-flex; justify-content: center; flex: none; }
 .repo-menu-check .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--borderColor-default); }
 .repo-menu-check .dot.live { background: var(--fgColor-success); }

@@ -1,4 +1,5 @@
 import {
+  AlertIcon,
   BellIcon,
   BellSlashIcon,
   ColumnsIcon,
@@ -133,6 +134,10 @@ export function App() {
   const [worktree, setWorktree] = useState<WorktreeState | null>(null);
   /** which marj is serving this page */
   const [version, setVersion] = useState<string | null>(null);
+  /** the event stream has been down for a while: the hub is gone or restarting */
+  const [offline, setOffline] = useState(false);
+  const offlineTimer = useRef<number>();
+  const versionRef = useRef<string | null>(null);
 
   const pulseTimer = useRef<number>();
   const collapsedInitialised = useRef(false);
@@ -239,20 +244,46 @@ export function App() {
   }, [scrollToThread]);
 
   useEffect(() => {
-    api.about().then((a) => setVersion(a.version)).catch(() => {});
+    api.about().then((a) => {
+      versionRef.current = a.version;
+      setVersion(a.version);
+    }).catch(() => {});
     void loadDiff();
     void loadThreads();
     void loadWorktree();
-    return subscribe((event) => {
-      if (event.type === 'diff:changed') {
-        void loadDiff();
-        void loadWorktree();
-        setPulse(true);
-        window.clearTimeout(pulseTimer.current);
-        pulseTimer.current = window.setTimeout(() => setPulse(false), 900);
-      }
-      if (event.type === 'threads:changed') void loadThreads();
-    });
+    return subscribe(
+      (event) => {
+        if (event.type === 'diff:changed') {
+          void loadDiff();
+          void loadWorktree();
+          setPulse(true);
+          window.clearTimeout(pulseTimer.current);
+          pulseTimer.current = window.setTimeout(() => setPulse(false), 900);
+        }
+        if (event.type === 'threads:changed') void loadThreads();
+      },
+      (connected) => {
+        window.clearTimeout(offlineTimer.current);
+        if (!connected) {
+          // a hub handing over to its replacement is back within a second or two; only a longer gap is news
+          offlineTimer.current = window.setTimeout(() => setOffline(true), 2500);
+          return;
+        }
+        setOffline(false);
+        // back — maybe on a new hub: a newer marj means new UI too, so reload; otherwise catch up on what was missed
+        api.about().then((a) => {
+          if (versionRef.current && a.version !== versionRef.current) {
+            window.location.reload();
+            return;
+          }
+          versionRef.current = a.version;
+          setVersion(a.version);
+          void loadDiff();
+          void loadThreads();
+          void loadWorktree();
+        }).catch(() => {});
+      },
+    );
   }, [loadDiff, loadThreads, loadWorktree]);
 
   const repoName = diff?.repoRoot.split('/').filter(Boolean).pop() ?? '';
@@ -386,6 +417,15 @@ export function App() {
 
   return (
     <div className="app">
+      {offline && (
+        <div className="offline" role="alert">
+          <AlertIcon size={14} />
+          <span>
+            <strong>marj is not answering.</strong> The hub stopped or is restarting; this page reconnects by itself.
+            If it stays like this, run <code>marj</code> in the repo again — this review comes back at the same address.
+          </span>
+        </div>
+      )}
       <header className="pagehead">
         <div className="pagehead-row title-row">
           <span className="brand" title={version ? `marj ${version}` : 'marj'}>
@@ -397,6 +437,12 @@ export function App() {
           <RepoSwitcher name={repoName || '…'} repoRoot={diff?.repoRoot} />
           <span className="crumb-sep">/</span>
           <span className="mode">{diff?.mode ?? 'loading'}</span>
+          {diff?.notice && (
+            <span className="label attention notice" title={diff.notice}>
+              <AlertIcon size={12} />
+              <span>{diff.notice}</span>
+            </span>
+          )}
           <PrSearch cwd={diff?.repoRoot} />
           <span className={`live${pulse ? ' pulse' : ''}`} title="live — the diff refreshes as files change" />
           <span className="spacer" />

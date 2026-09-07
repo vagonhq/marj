@@ -66,8 +66,12 @@ export const api = {
     ),
 };
 
-/** SSE with automatic reconnect. */
-export function subscribe(onEvent: (event: ServerEvent) => void): () => void {
+/**
+ * SSE with automatic reconnect. `onConnection` hears every drop and every
+ * (re)connection, so the page can say when the hub is gone and catch up when
+ * it — or its replacement — is back.
+ */
+export function subscribe(onEvent: (event: ServerEvent) => void, onConnection?: (connected: boolean) => void): () => void {
   let source: EventSource | null = null;
   let stopped = false;
   let retry: number | undefined;
@@ -75,10 +79,12 @@ export function subscribe(onEvent: (event: ServerEvent) => void): () => void {
   const connect = () => {
     if (stopped) return;
     source = new EventSource(`${BASE}/api/events`);
+    source.onopen = () => onConnection?.(true);
     source.onmessage = (message) => onEvent(JSON.parse(message.data) as ServerEvent);
     source.onerror = () => {
       source?.close();
       source = null;
+      onConnection?.(false);
       retry = window.setTimeout(connect, 1500);
     };
   };

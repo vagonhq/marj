@@ -10,10 +10,9 @@ interface Props {
 }
 
 /**
- * The repo name in the header, as a menu of every repo and worktree marj knows
- * about. Each has its own server, so picking one navigates this tab to it and
- * you see only that repo's diff. Repos with saved reviews but no running server
- * are listed greyed out, so you know where to start marj.
+ * The repo name in the header, as a menu of every repo and worktree the hub is
+ * serving right now. Each has its own server, so picking one navigates this tab
+ * to it and you see only that repo's diff.
  */
 export function RepoSwitcher({ name, repoRoot }: Props) {
   const [open, setOpen] = useState(false);
@@ -44,11 +43,9 @@ export function RepoSwitcher({ name, repoRoot }: Props) {
   }, [open]);
 
   const go = (item: ServerListing) => {
-    if (!item.live || !item.url || item.current) return;
+    if (item.current) return;
     window.location.assign(item.url);
   };
-
-  const others = items?.filter((i) => !i.current) ?? [];
 
   return (
     <div className="repo-switch" ref={box}>
@@ -68,17 +65,17 @@ export function RepoSwitcher({ name, repoRoot }: Props) {
         <div className="repo-menu" role="menu">
           <div className="repo-menu-head">Repos &amp; worktrees marj knows</div>
           {error && <div className="repo-menu-note">couldn't list servers: {error}</div>}
-          {items && items.length === 0 && <div className="repo-menu-note">Only this one.</div>}
+          {items && items.length <= 1 && <div className="repo-menu-note">Only this one. Run `marj` (or `/marj:review`) in another repo or worktree to list it here.</div>}
           {items?.map((item) => (
             <button
               key={`${item.repoRoot}::${item.session ?? ''}`}
               role="menuitem"
-              className={`repo-menu-item${item.current ? ' current' : ''}${item.live ? '' : ' dead'}`}
-              disabled={!item.live || item.current}
-              title={item.live ? item.url ?? '' : `not running — start marj in ${item.repoRoot}`}
+              className={`repo-menu-item${item.current ? ' current' : ''}`}
+              disabled={item.current}
+              title={item.url}
               onClick={() => go(item)}
             >
-              <span className="repo-menu-check">{item.current ? <CheckIcon size={14} /> : <span className={`dot${item.live ? ' live' : ''}`} />}</span>
+              <span className="repo-menu-check">{item.current ? <CheckIcon size={14} /> : <span className="dot live" />}</span>
               <span className="repo-menu-main">
                 <span className="repo-menu-name">
                   {item.name}
@@ -90,14 +87,11 @@ export function RepoSwitcher({ name, repoRoot }: Props) {
                       <GitBranchIcon size={12} /> {item.branch}
                     </>
                   )}
-                  {item.live ? (item.mode ? ` · ${item.mode}` : '') : ' · not running'}
+                  {item.mode ? ` · ${item.mode}` : ''}
                 </span>
               </span>
             </button>
           ))}
-          {items && others.length > 0 && others.every((i) => !i.live) && (
-            <div className="repo-menu-note">Greyed repos have saved reviews but no server. Run `marj` (or `/marj:review`) inside them.</div>
-          )}
         </div>
       )}
     </div>
