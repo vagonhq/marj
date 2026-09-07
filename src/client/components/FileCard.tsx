@@ -120,6 +120,13 @@ function buildRows(file: DiffFile, view: 'unified' | 'split'): Row[] {
 
 const numberOn = (row: Row, side: Side) => (side === 'old' ? row.oldNo : row.newNo);
 
+/** how far past the viewport a card is still rendered, in px */
+const LOOKAHEAD = 1200;
+/** a diff row's height; the placeholder guess before a body was ever measured */
+const ROW_HEIGHT = 20;
+const estimateHeight = (file: DiffFile) =>
+  Math.min(2000, 60 + file.hunks.reduce((sum, hunk) => sum + hunk.lines.length + 1, 0) * ROW_HEIGHT);
+
 /** the gutter/drag callbacks a row needs; kept identity-stable so rows can be memoised */
 interface RowHandlers {
   startSelect: (event: React.MouseEvent, side: Side, index: number) => void;
@@ -265,6 +272,40 @@ export const FileCard = memo(function FileCard(props: Props) {
   } = props;
   const cardId = scope === 'review' ? `file-${file.path}` : `${scope}-file-${file.path}`;
 
+  // ---- lazy body ----
+  // Only cards near the viewport carry their rows (and get highlighted); the
+  // rest are a header over a placeholder of the height they last had, so a big
+  // diff costs what is on screen, not what is in the PR.
+  const sectionRef = useRef<HTMLElement>(null);
+  const [near, setNear] = useState(false);
+  useEffect(() => {
+    const el = sectionRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') {
+      setNear(true);
+      return;
+    }
+    const observer = new IntersectionObserver(([entry]) => setNear(entry.isIntersecting), { rootMargin: `${LOOKAHEAD}px 0px` });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const mine = draft && draft.file === file.path ? draft : null;
+  const fileDraft = !!mine && isFileLevel(mine);
+
+  // threads and a composer have to exist to be jumped to or typed in, wherever the card sits
+  const mounted = !collapsed && (near || threads.length > 0 || !!mine || !!reveal);
+  /** the body's last measured height, so its placeholder keeps the page from jumping */
+  const bodyHeight = useRef<number | null>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry.contentRect.height > 0) bodyHeight.current = entry.contentRect.height;
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  });
+
   const language = useMemo(() => languageOf(file.path), [file.path]);
 
   // ---- expanding context around hunks ----
@@ -329,7 +370,7 @@ export const FileCard = memo(function FileCard(props: Props) {
 
   const revealTried = useRef(-1);
   useEffect(() => {
-    if (!reveal) return;
+    if (!reveal || !mounted) return;
     const row = lineRow(file.path, reveal.line);
     if (row) {
       flashElement(row, 'center');
@@ -339,14 +380,14 @@ export const FileCard = memo(function FileCard(props: Props) {
     revealTried.current = reveal.nonce;
     expand([reveal.line - 5, reveal.line + 5]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reveal, shown]);
+  }, [reveal, shown, mounted]);
 
   // syntax colours arrive asynchronously; plain text is shown until then
   const [tokens, setTokens] = useState<Map<string, TokenLine> | null>(null);
   /** the diff the current tokens were made for; re-opening a card must not tokenize again */
   const highlightedFor = useRef<DiffFile | null>(null);
   useEffect(() => {
-    if (!language || collapsed || file.binary || highlightedFor.current === shown) return;
+    if (!language || !mounted || file.binary || highlightedFor.current === shown) return;
     let alive = true;
     highlightFile(shown, language)
       .then((result) => {
@@ -358,14 +399,12 @@ export const FileCard = memo(function FileCard(props: Props) {
     return () => {
       alive = false;
     };
-  }, [shown, language, collapsed, file.binary]);
+  }, [shown, language, mounted, file.binary]);
 
   const [span, setSpan] = useState<{ side: Side; from: number; to: number } | null>(null);
   const [dragging, setDragging] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const mine = draft && draft.file === file.path ? draft : null;
-  const fileDraft = !!mine && isFileLevel(mine);
 
   useEffect(() => {
     if (!mine || fileDraft) setSpan(null);
@@ -558,7 +597,7 @@ export const FileCard = memo(function FileCard(props: Props) {
   const outdated = threads.filter((t) => t.status === 'outdated');
 
   return (
-    <section className={`file-card${viewed ? ' is-viewed' : ''}`} id={cardId}>
+    <section ref={sectionRef} className={`file-card${viewed ? ' is-viewed' : ''}`} id={cardId}>
       <header className="file-head">
         <button className="btn invisible icon-only chevron" onClick={() => onToggle(file.path)} aria-label={collapsed ? 'expand' : 'collapse'}>
           {collapsed ? <ChevronRightIcon size={16} /> : <ChevronDownIcon size={16} />}
@@ -599,8 +638,11 @@ export const FileCard = memo(function FileCard(props: Props) {
         </label>
       </header>
 
-      {!collapsed && (
-        <>
+      {!collapsed && !mounted && (
+        <div className="file-body placeholder" style={{ height: bodyHeight.current ?? estimateHeight(file) }} aria-hidden />
+      )}
+      {mounted && (
+        <div className="file-body" ref={bodyRef}>
           {(fileThreads.length > 0 || fileDraft) && (
             <div className="file-threads">
               {fileThreads.map((thread) => (
@@ -674,7 +716,7 @@ export const FileCard = memo(function FileCard(props: Props) {
               </tbody>
             </table>
           )}
-        </>
+        </div>
       )}
     </section>
   );

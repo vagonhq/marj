@@ -71,7 +71,7 @@ function Resizer({
   onChange,
 }: {
   panel: keyof typeof PANEL;
-  /** called with the new width while dragging, and with null to reset */
+  /** called once with the final width when the drag ends, and with null to reset */
   onChange: (width: number | null) => void;
 }) {
   const [active, setActive] = useState(false);
@@ -79,22 +79,35 @@ function Resizer({
     if (event.button !== 0) return;
     event.preventDefault();
     const spec = PANEL[panel];
-    const el = (event.currentTarget as HTMLElement)[panel === 'sidebar' ? 'previousElementSibling' : 'nextElementSibling'];
-    if (!el) return;
+    const handle = event.currentTarget as HTMLElement;
+    const el = handle[panel === 'sidebar' ? 'previousElementSibling' : 'nextElementSibling'];
+    const workspace = handle.parentElement;
+    if (!el || !workspace) return;
     const rect = el.getBoundingClientRect();
     const origin = event.clientX;
     const initial = rect.width;
+    let width = initial;
+    let frame = 0;
     setActive(true);
     document.body.classList.add('resizing');
+    // the width goes straight to the CSS variable while dragging — a React render per
+    // mouse move would re-run the whole page; state is set once, on release
     const move = (e: MouseEvent) => {
       const delta = panel === 'sidebar' ? e.clientX - origin : origin - e.clientX;
-      onChange(Math.min(spec.max, Math.max(spec.min, Math.round(initial + delta))));
+      width = Math.min(spec.max, Math.max(spec.min, Math.round(initial + delta)));
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        workspace.style.setProperty(`--${panel}-width`, `${width}px`);
+      });
     };
     const stop = () => {
+      window.cancelAnimationFrame(frame);
       setActive(false);
       document.body.classList.remove('resizing');
       window.removeEventListener('mousemove', move);
       window.removeEventListener('mouseup', stop);
+      onChange(width);
     };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', stop);
