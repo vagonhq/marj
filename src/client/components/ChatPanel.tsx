@@ -1,6 +1,6 @@
 import { SparkleFillIcon, TrashIcon, XIcon } from '@primer/octicons-react';
 import { useEffect, useMemo, useRef } from 'react';
-import { CHAT_THREAD, EXPLAIN_PROMPT, type DiffFile, type Intent, type Thread } from '../../shared/types';
+import { CHAT_THREAD, EXPLAIN_PROMPT, REVIEW_LEVEL_LABELS, reviewLevelOf, type DiffFile, type Intent, type Thread } from '../../shared/types';
 import { api } from '../api.js';
 import { buildLocationIndex } from '../locations.js';
 import { Composer } from './Composer.js';
@@ -74,7 +74,13 @@ export function ChatPanel({ chat, files, author, onClose, onChanged, onNavigate 
                   </span>
                 )}
               </div>
-              <MarkdownBody body={message.body} index={index} onNavigate={onNavigate} />
+              {message.role === 'user' && reviewLevelOf(message.body) ? (
+                <div className="comment-body">
+                  Review these changes · <strong>{REVIEW_LEVEL_LABELS[reviewLevelOf(message.body)!].title}</strong> effort
+                </div>
+              ) : (
+                <MarkdownBody body={message.body} index={index} onNavigate={onNavigate} />
+              )}
             </div>
           </div>
         ))}

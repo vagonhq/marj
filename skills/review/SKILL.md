@@ -105,6 +105,12 @@ Answer it with `marj reply chat`. See section 3a.
 - `[fix]` — make the change, then reply saying what you changed and why. If you think the change
   is wrong, don't do it silently: reply with your objection and ask.
 
+A fourth comes from the **Review** button; see section 3b:
+
+```
+CHAT chat [ask] — Review these changes at effort level "medium". Run your code-review skill …
+```
+
 Comments that arrived before the watch started are replayed once, oldest first. Nothing is
 lost while you are busy — events queue and arrive in order.
 
@@ -215,6 +221,73 @@ EOF
 
 `marj show chat` prints the whole conversation. Follow-up questions arrive as further `CHAT`
 lines; answer each once, in the same thread.
+
+## 3b. The "Review" button — you review, line by line
+
+The header has a **Review** button with an effort level (low / medium / high / xhigh / max). It
+sends this into the chat:
+
+```
+CHAT chat [ask] — Review these changes at effort level "high". Run your code-review skill …
+```
+
+You are the reviewer now. Do it like a human reviewer on GitHub would: findings go **on the
+lines**, as your own comments, and the chat only gets a short summary.
+
+1. `marj reply chat --typing`.
+2. Run your **code-review skill** at that level — `Skill({ skill: "code-review", args: "<level>" })`
+   — on the same target marj is showing (working tree for the default review; the commit range or
+   PR otherwise: `curl -s <url>/api/diff | jq -r .mode`). If the skill is not available, review
+   the diff yourself with the same thoroughness the level asks for: low/medium means only sure,
+   high-confidence bugs; high and above means every changed path, edge cases, and it may include
+   uncertain findings said as such.
+3. **Post each finding as an inline comment**, on the exact lines, new side, one thread per
+   finding. Line numbers are from the new side of the file, as the diff shows them. Use a heredoc
+   so markdown and code survive:
+
+   ```bash
+   marj comment src/api/users.ts 42-44 --side new <<'EOF'
+   `user` can be null here: `getUser()` returns null for a deleted account, and the next line
+   dereferences it → 500 instead of 404.
+
+   ```suggestion
+     const user = await getUser(id);
+     if (!user) return res.status(404).json({ error: 'no such user' });
+   ```
+   EOF
+   ```
+
+   A ` ```suggestion ` block is a **GitHub suggested change**: its contents replace the commented
+   lines (`42-44` above) **verbatim** — whole lines, original indentation, nothing more and
+   nothing less. Add one only when you have a concrete, drop-in replacement for exactly those
+   lines; otherwise describe the fix in words. The UI turns the block into a small diff with an
+   **Apply suggestion** button. Comment on a file as a whole (`marj comment <file> "…"`) only for
+   findings that have no line.
+4. **Do not change any code during a review.** The button is `[ask]`. The user applies what they
+   agree with, one suggestion at a time.
+5. Finish with `marj reply chat`: how many findings, one line each as `path:line — what` (those
+   become links), and what you did not flag on purpose if that matters. No findings is a valid
+   result — say so, and say what you checked.
+
+Write in the language the user has been using with you. Keep each comment short: what is wrong,
+why it matters (the concrete failure), and the fix.
+
+### "Apply suggestion"
+
+Pressing the button on one of your suggestions sends a `[fix]` reply into that thread:
+
+```
+REPLY t7 src/api/users.ts:42-44 [fix] — Apply suggestion (message t7m1, block 1): replace exactly the commented lines …
+```
+
+`message t7m1, block 1` names which of your messages and which ` ```suggestion ` block in it
+(1-based) was clicked — a thread can carry several. `marj show t7` prints the thread — your
+suggestion blocks included — and the current code with `>` on the commented lines. Replace
+exactly those lines with that block's contents, using your
+normal editing tools, in the checkout marj is watching. If the lines moved or changed since you
+suggested it, apply the same change to where they are now and say so. Then reply in one or two
+sentences with what changed and `--resolve` the thread. The usual rule about committed ranges
+and PRs applies (section 3): the edit is real, but shows in the diff only once committed.
 
 ## 4. House rules
 

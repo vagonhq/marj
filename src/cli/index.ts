@@ -35,7 +35,7 @@ repo name in the header switches between repos and worktrees.
 Sessions (independent reviews of the same repo)
   marj --session <name>           an isolated review: its own threads and chat
   marj <cmd> --session <name>     talk to that review (watch, threads, show, reply, stop, …)
-  marj --force                    a second review of a repo already under review (auto-named s2, s3, …)
+  marj --force                    a second review of a repo already under review (auto-named s2, s3, …; a PR gets pr-<n>)
 
 Targets
   marj                            working tree vs HEAD (plus untracked files)

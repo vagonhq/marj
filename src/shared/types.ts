@@ -96,6 +96,57 @@ export const EXPLAIN_PROMPT =
 export const COMMIT_PROMPT =
   'Commit the uncommitted changes from this review with a clear, conventional commit message, then push them.';
 
+/** How hard the "Review" button asks Claude to look — the effort levels of Claude Code's code review. */
+export const REVIEW_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+export type ReviewLevel = (typeof REVIEW_LEVELS)[number];
+
+export const REVIEW_LEVEL_LABELS: Record<ReviewLevel, { title: string; hint: string }> = {
+  low: { title: 'Low', hint: 'quick pass, only the sure things' },
+  medium: { title: 'Medium', hint: 'the usual review: real bugs, few false alarms' },
+  high: { title: 'High', hint: 'thorough: every changed path, edge cases too' },
+  xhigh: { title: 'Extra high', hint: 'exhaustive, may raise uncertain findings' },
+  max: { title: 'Max', hint: 'everything it can find, however long it takes' },
+};
+
+const REVIEW_PROMPT_HEAD = 'Review these changes at effort level';
+
+/** What the "Review" button sends into the chat. The level rides inside the text, so `marj watch` shows it. */
+export function reviewPrompt(level: ReviewLevel): string {
+  return (
+    `${REVIEW_PROMPT_HEAD} "${level}". Run your code-review skill at that level, then post each finding as an ` +
+    'inline comment on the exact lines (`marj comment`), like a human reviewer would, with a ```suggestion block ' +
+    'when you have a concrete replacement for those lines. Do not change any code. Finish with a short summary here.'
+  );
+}
+
+/** The level a review prompt asked for, or null when the message is not one. */
+export function reviewLevelOf(body: string): ReviewLevel | null {
+  const match = body.match(new RegExp(`^${REVIEW_PROMPT_HEAD} "([a-z]+)"`));
+  const level = match?.[1] as ReviewLevel | undefined;
+  return level && (REVIEW_LEVELS as readonly string[]).includes(level) ? level : null;
+}
+
+const APPLY_SUGGESTION_HEAD = 'Apply suggestion';
+
+/**
+ * What the "Apply suggestion" button sends, as a `[fix]` reply. It names the
+ * message and the block (1-based, counting ```suggestion blocks in that
+ * message), so a thread with several suggestions applies the right one and the
+ * UI can mark only that one as applied.
+ */
+export function applySuggestionPrompt(messageId: string, block: number): string {
+  return (
+    `${APPLY_SUGGESTION_HEAD} (message ${messageId}, block ${block}): replace exactly the commented lines with the ` +
+    'contents of that ```suggestion block, then reply with what changed.'
+  );
+}
+
+/** Which suggestion an "Apply suggestion" message asks for, or null when the message is not one. */
+export function appliedSuggestionOf(body: string): { messageId: string; block: number } | null {
+  const match = body.match(new RegExp(`^${APPLY_SUGGESTION_HEAD} \\(message ([^,\\s]+), block (\\d+)\\)`));
+  return match ? { messageId: match[1], block: Number(match[2]) } : null;
+}
+
 /** "src/a.ts:12-15", "src/a.ts:12", or just "src/a.ts" for a file-level thread */
 export function describeTarget(target: { file: string; startLine: number; endLine: number }): string {
   if (isFileLevel(target)) return target.file;

@@ -1,8 +1,9 @@
-import { CheckIcon, SparkleFillIcon, TrashIcon } from '@primer/octicons-react';
+import { CheckIcon, LightBulbIcon, SparkleFillIcon, TrashIcon } from '@primer/octicons-react';
 import { useState } from 'react';
-import type { Intent, Message, Thread } from '../../shared/types';
+import { appliedSuggestionOf, applySuggestionPrompt, type Intent, type Message, type Thread } from '../../shared/types';
 import type { LocationIndex } from '../locations.js';
 import { api } from '../api.js';
+import { splitSuggestions } from '../suggestions.js';
 import { Composer } from './Composer.js';
 import { MarkdownBody } from './MarkdownBody.js';
 
@@ -40,6 +41,78 @@ export function Avatar({ role, author, small }: { role: Message['role']; author:
   );
 }
 
+type SuggestionState = 'ready' | 'applying' | 'applied';
+
+/** What happened to suggestion `block` of message `messageId`: nothing yet, a fix asked for, or Claude done with it. */
+function suggestionState(thread: Thread, messageId: string, block: number): SuggestionState {
+  const asked = thread.messages.findIndex((m) => {
+    if (m.role !== 'user') return false;
+    const ref = appliedSuggestionOf(m.body);
+    return ref !== null && ref.messageId === messageId && ref.block === block;
+  });
+  if (asked === -1) return 'ready';
+  return thread.messages.slice(asked + 1).some((m) => m.role === 'agent') ? 'applied' : 'applying';
+}
+
+/**
+ * A ```suggestion block drawn like GitHub draws one: the commented lines going
+ * out, the proposed lines coming in, and a button that asks Claude to make it so.
+ */
+function Suggestion({
+  lines,
+  thread,
+  state,
+  disabled,
+  onApply,
+}: {
+  lines: string[];
+  thread: Thread;
+  state: SuggestionState;
+  disabled: boolean;
+  onApply: () => void;
+}) {
+  const removed = thread.anchor.text;
+  const from = thread.startLine === thread.endLine ? `line ${thread.startLine}` : `lines ${thread.startLine}–${thread.endLine}`;
+  return (
+    <div className="suggestion">
+      <div className="suggestion-head">
+        <LightBulbIcon size={14} />
+        <strong>Suggested change</strong>
+        {thread.startLine > 0 && <span className="muted">replaces {from}</span>}
+      </div>
+      <table className="suggestion-diff">
+        <tbody>
+          {removed.map((text, i) => (
+            <tr key={`d${i}`} className="del">
+              <td className="sign">−</td>
+              <td className="code">{text}</td>
+            </tr>
+          ))}
+          {lines.map((text, i) => (
+            <tr key={`a${i}`} className="add">
+              <td className="sign">+</td>
+              <td className="code">{text}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="suggestion-foot">
+        {state === 'applied' ? (
+          <span className="label success">
+            <CheckIcon size={12} /> Applied
+          </span>
+        ) : state === 'applying' ? (
+          <span className="label accent pulse">Claude is applying it…</span>
+        ) : (
+          <button className="btn small primary" disabled={disabled} title="Claude replaces these lines with the suggestion" onClick={onApply}>
+            Apply suggestion
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function ThreadCard({ thread, author, onChanged, index, onNavigate }: Props) {
   const [replying, setReplying] = useState(false);
   const waiting = thread.status !== 'resolved' && thread.messages.at(-1)?.role === 'user';
@@ -49,6 +122,41 @@ export function ThreadCard({ thread, author, onChanged, index, onNavigate }: Pro
     await api.reply(thread.id, body, intent);
     setReplying(false);
     onChanged();
+  };
+
+  const applySuggestion = async (messageId: string, block: number) => {
+    await api.reply(thread.id, applySuggestionPrompt(messageId, block), 'fix');
+    onChanged();
+  };
+
+  /** the body as markdown, with every ```suggestion block turned into a widget */
+  const renderBody = (message: Message) => {
+    if (message.role !== 'agent') return <MarkdownBody body={message.body} index={index} onNavigate={onNavigate} />;
+    const segments = splitSuggestions(message.body);
+    if (!segments.some((s) => s.kind === 'suggestion')) {
+      return <MarkdownBody body={message.body} index={index} onNavigate={onNavigate} />;
+    }
+    let block = 0;
+    return (
+      <>
+        {segments.map((segment, i) => {
+          if (segment.kind === 'markdown') {
+            return <MarkdownBody key={i} body={segment.text} index={index} onNavigate={onNavigate} />;
+          }
+          const n = ++block;
+          return (
+            <Suggestion
+              key={i}
+              lines={segment.lines}
+              thread={thread}
+              state={suggestionState(thread, message.id, n)}
+              disabled={waiting || thread.status === 'outdated'}
+              onApply={() => void applySuggestion(message.id, n)}
+            />
+          );
+        })}
+      </>
+    );
   };
 
   const setStatus = async (status: string) => {
@@ -77,7 +185,7 @@ export function ThreadCard({ thread, author, onChanged, index, onNavigate }: Pro
                 </span>
               )}
             </div>
-            <MarkdownBody body={message.body} index={index} onNavigate={onNavigate} />
+            {renderBody(message)}
           </div>
         </div>
       ))}
