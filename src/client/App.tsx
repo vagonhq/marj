@@ -12,13 +12,27 @@ import {
   SunIcon,
 } from '@primer/octicons-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CHAT_THREAD, COMMIT_PROMPT, describeTarget, isChat, type DiffFile, type DiffPayload, type Intent, type Thread, type WorktreeState } from '../shared/types';
+import {
+  CHAT_THREAD,
+  COMMIT_PROMPT,
+  describeTarget,
+  isChat,
+  reviewLevelOf,
+  reviewPrompt,
+  type DiffFile,
+  type DiffPayload,
+  type Intent,
+  type ReviewLevel,
+  type Thread,
+  type WorktreeState,
+} from '../shared/types';
 import { api, subscribe } from './api.js';
 import { ChatPanel } from './components/ChatPanel.js';
 import { FileCard } from './components/FileCard.js';
 import { FileTree } from './components/FileTree.js';
 import { PrSearch } from './components/PrSearch.js';
 import { RepoSwitcher } from './components/RepoSwitcher.js';
+import { ReviewButton } from './components/ReviewButton.js';
 import { Toasts, type Toast } from './components/Toasts.js';
 import { UncommittedSection } from './components/UncommittedSection.js';
 import type { DraftTarget } from './components/types.js';
@@ -369,6 +383,19 @@ export function App() {
 
   const pending = threads.filter((t) => t.status !== 'resolved' && t.messages.at(-1)?.role === 'user').length;
 
+  /** the chat is waiting on Claude — and whether what it waits for is a review */
+  const chatBusy = !!chat && chat.status !== 'resolved' && chat.messages.at(-1)?.role === 'user';
+  const reviewing = chatBusy && reviewLevelOf(chat.messages.at(-1)!.body) !== null;
+
+  const startReview = useCallback(
+    async (level: ReviewLevel) => {
+      await api.reply(CHAT_THREAD, reviewPrompt(level), 'ask');
+      setChatOpen(true);
+      void loadThreads();
+    },
+    [loadThreads],
+  );
+
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const submitDraft = useCallback(
@@ -486,6 +513,7 @@ export function App() {
           <span className={`live${pulse ? ' pulse' : ''}`} title="live — the diff refreshes as files change" />
           <span className="spacer" />
           {pending > 0 && <span className="label accent large">{pending} waiting on Claude</span>}
+          <ReviewButton reviewing={reviewing} busy={chatBusy && !reviewing} onReview={startReview} />
           <button
             className={`btn invisible chat-toggle${chatOpen ? ' fg-accent' : ''}`}
             title={chatOpen ? 'Hide the review chat' : 'Chat with Claude about the whole change'}
@@ -578,7 +606,7 @@ export function App() {
               setChatOpen(true);
               void loadThreads();
             }}
-            claudeBusy={!!chat && chat.status !== 'resolved' && chat.messages.at(-1)?.role === 'user'}
+            claudeBusy={chatBusy}
           />
           {diff && files.length === 0 && <div className="empty">No changes to review.</div>}
           {files.map((file) => (

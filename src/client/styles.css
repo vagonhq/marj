@@ -861,3 +861,46 @@ tr.line.flash td { animation: flash-row 1.6s ease-out; }
 .pr-menu .repo-menu-name { max-width: 100%; }
 
 .brand .version { margin-left: 2px; font: 11px var(--font-mono); font-weight: 500; color: var(--fgColor-muted); }
+
+/* ---- Review button + suggested changes ---- */
+.review-btn { gap: 6px; padding: 0 10px 0 12px; }
+.review-btn svg:last-child { margin-left: -2px; opacity: .8; }
+.review-menu { left: auto; right: 0; min-width: 300px; }
+.review-menu .repo-menu-item { align-items: flex-start; }
+.review-menu .repo-menu-check { margin-top: 4px; }
+.review-menu .repo-menu-sub { white-space: normal; }
+
+.suggestion {
+  margin: 8px 0;
+  border: 1px solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  overflow: hidden;
+  background: var(--bgColor-default);
+}
+.suggestion-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  background: var(--bgColor-muted);
+  border-bottom: 1px solid var(--borderColor-default);
+}
+.suggestion-head svg { color: var(--fgColor-attention); }
+.suggestion-head .muted { color: var(--fgColor-muted); }
+.suggestion-diff { width: 100%; border-collapse: collapse; font: 12px/1.5 var(--font-mono); }
+.suggestion-diff td { padding: 0 10px 0 0; white-space: pre; vertical-align: top; }
+.suggestion-diff .sign { width: 28px; padding: 0; text-align: center; user-select: none; color: var(--fgColor-muted); }
+.suggestion-diff tr.del { background: var(--diffBlob-deletionLine-bgColor); }
+.suggestion-diff tr.add { background: var(--diffBlob-additionLine-bgColor); }
+.suggestion-diff tr.del .sign { background: var(--diffBlob-deletionNum-bgColor); color: var(--diffBlob-deletionNum-fgColor); }
+.suggestion-diff tr.add .sign { background: var(--diffBlob-additionNum-bgColor); color: var(--diffBlob-additionNum-fgColor); }
+.suggestion-foot {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--borderColor-default);
+  background: var(--bgColor-muted);
+}

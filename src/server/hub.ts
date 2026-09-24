@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { createRepoContext, type RepoContext } from './context.js';
-import { GitError, repoRootOf } from './git.js';
+import { GitError, parsePullRequest, repoRootOf } from './git.js';
 import { discoverServers } from './registry.js';
 import { MARJ_HOME, migrateLegacyState, normaliseSession, repoStateBase, stateDir } from './state.js';
 import { VERSION } from './version.js';
@@ -85,6 +85,20 @@ export interface RegisterRequest {
 export interface RegisterResponse extends ServerInfo {
   id: string;
   reused: boolean;
+}
+
+/**
+ * The session a *forced* (fresh, isolated) review gets. A pull request is keyed
+ * by its number — `pr-42` — so opening PR 42 twice lands in the same
+ * conversation and PR 43 never inherits it. Anything else takes the first free
+ * `s2`, `s3`, … slot.
+ */
+export function forcedSession(positional: string[], taken: (session: string) => boolean): string {
+  const pr = positional.length === 1 ? parsePullRequest(positional[0]) : null;
+  if (pr) return `pr-${pr.number}`;
+  for (let n = 2; ; n++) {
+    if (!taken(`s${n}`)) return `s${n}`;
+  }
 }
 
 /** /r/<id>: readable, unique per repo path, with the session appended. */
@@ -258,18 +272,20 @@ export async function startHub(opts: HubOptions = {}): Promise<{ info: HubInfo; 
       const repoRoot = await repoRootOf(body.cwd);
       let session = normaliseSession(body.session);
       let id = contextId(repoRoot, session);
+      /** a fresh auto-named review must not inherit threads an earlier hub left in that slot */
+      let startClean = false;
+      const positional = body.positional ?? [];
+      const isPr = positional.length === 1 && parsePullRequest(positional[0]) !== null;
+      // --force / the PR picker: a review of its own. A PR always gets its own `pr-<n>` session,
+      // even when the default slot is free, so it never lands in another review's conversation.
+      if (body.force && (isPr || contexts.has(id))) {
+        session = forcedSession(positional, (s) => contexts.has(contextId(repoRoot, s)));
+        id = contextId(repoRoot, session);
+        startClean = !isPr;
+      }
       const existing = contexts.get(id);
-      if (existing && !body.force) {
-        return res.json(describe(existing, true));
-      }
-      if (existing && body.force) {
-        // pick a free s2, s3, … so the second review of the same repo is isolated
-        for (let n = 2; ; n++) {
-          session = `s${n}`;
-          id = contextId(repoRoot, session);
-          if (!contexts.has(id)) break;
-        }
-      }
+      // the same review asked for again (the same PR picked twice included) is the same review, threads and all
+      if (existing) return res.json(describe(existing, true));
       // a review opened from the browser (the PR picker) belongs to whoever owns the review it was opened from
       let ownerPid = body.ownerPid;
       if (ownerPid === undefined) {
@@ -284,6 +300,7 @@ export async function startHub(opts: HubOptions = {}): Promise<{ info: HubInfo; 
       await fs.mkdir(repoStateBase(repoRoot), { recursive: true });
       // remembered even after the review stops, so the switcher can still list this repo
       await fs.writeFile(path.join(repoStateBase(repoRoot), 'repo.json'), JSON.stringify({ repoRoot }, null, 2));
+      if (startClean) await fs.rm(path.join(stateDir(repoRoot, session), 'threads.json'), { force: true });
 
       const ctx = await createRepoContext({
         id,

@@ -92,13 +92,15 @@ marj never commits or pushes on its own; only when you click or ask.
 
 📄 **Comment on a whole file,** not just a line — for "split this up" or "why does this exist?". The thread sits above the diff and stays put no matter how the lines move.
 
+🔎 **Ask Claude to review — line by line.** The **Review** button in the header picks an effort level (low → max, the same levels as Claude Code's `/code-review`) and hands the whole change to the session behind the page. Claude runs its review skill and posts each finding as its own comment **on the exact lines**, the way a human reviewer would; the chat gets a short summary with `path:line` links. When a finding comes with a ` ```suggestion ` block, the thread shows it as a small diff with an **Apply suggestion** button — press it and Claude replaces those lines, then tells you it did. Reviewing never touches your code on its own; you apply what you agree with.
+
 💬 **Review chat with "Explain these changes."** A panel on the right that walks the whole change file by file — and every `path:line` it mentions (in the chat *and* in thread replies) becomes a link that jumps the diff there and highlights the file in the sidebar. Enter sends, Shift+Enter is a newline.
 
 ↕️ **Expandable context,** like GitHub. Open the lines between hunks a click or twenty at a time, all the way to the end of the file — and comment on them too.
 
 🔀 **Pull requests & merge-base diffs.** A branch that hasn't been rebased shows only *its* commits, not everything that landed on `develop` since — because two revisions are compared from their merge base, exactly like a PR. Paste a PR URL and marj fetches it, asks `gh` for the base and title, and reviews it like the PR page. Reviewing the branch you're **on** (`/marj:review develop`) diffs against the working tree, so it shows the whole branch *and* any uncommitted edit — a **Comment & fix** appears live, no commit or refresh.
 
-🔍 **Find a pull request from the header.** The **PRs** button lists this repo's open pull requests; type to search every state through GitHub's own syntax (`login`, `author:me`, `1921`). Picking one opens it as its own review session, so whatever you were reviewing keeps its threads and its URL. Needs `gh` on your PATH — the same CLI marj already uses to read a PR.
+🔍 **Find a pull request from the header.** The **PRs** button lists this repo's open pull requests; type to search every state through GitHub's own syntax (`login`, `author:me`, `1921`). Picking one opens it as its own review session (`pr-<number>`), so whatever you were reviewing keeps its threads and its URL — and each PR keeps a conversation of its own, never another PR's. Needs `gh` on your PATH — the same CLI marj already uses to read a PR.
 
 📝 **Uncommitted changes, ready to commit.** Every fix lands in your local repo as a plain uncommitted edit — no worktree, no copy. A section at the top lists exactly what's not committed yet (HEAD → working tree, untracked included), badges the files changed during this review, folds pre-existing local edits, and lets you **Commit** or **Commit & push** with a message — or **Ask Claude to commit & push** and let it write the message (`/marj:commit` does the same). If you're on a different branch than the one you're reviewing, it says so and offers to switch, so a fix never lands in the wrong place.
 
@@ -148,7 +150,7 @@ marj watch --session pr-42        # follow-up commands take the same flag
 marj stop  --session pr-42
 ```
 
-`marj --force` does the same without naming it (auto `s2`, `s3`, …).
+`marj --force` does the same without naming it (auto `s2`, `s3`, … — always starting with a clean slate; a PR target gets `pr-<number>` instead, so the same PR opened again finds its own threads).
 
 ## HTTP API
 

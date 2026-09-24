@@ -6,7 +6,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const home = await fs.mkdtemp(path.join(os.tmpdir(), 'marj-hub-home-'));
 process.env.MARJ_HOME = home;
-const { startHub } = await import('../src/server/hub.js');
+const { startHub, forcedSession } = await import('../src/server/hub.js');
+const { stateDir } = await import('../src/server/state.js');
 
 let frontend: string;
 let backend: string;
@@ -123,11 +124,36 @@ describe('the hub', () => {
     const again = (await (await post(`${hub.info.url}/api/repos`, { cwd: frontend, positional: [], watch: false })).json()) as {
       reused: boolean;
       session?: string;
+      url: string;
     };
     expect(again.reused).toBe(true);
+    // threads an earlier hub left in the s2 slot belong to some other review: a forced one starts clean
+    const stale = path.join(stateDir(frontend, 's2'), 'threads.json');
+    await fs.mkdir(path.dirname(stale), { recursive: true });
+    await fs.writeFile(
+      stale,
+      JSON.stringify({
+        version: 1,
+        seq: 1,
+        nextThreadId: 2,
+        threads: [{ id: 'chat', file: '', side: 'new', startLine: 0, endLine: 0, anchor: { text: [], before: [], after: [] }, status: 'open', agentTyping: false, createdAt: '', updatedAt: '', messages: [{ id: 'chatm1', role: 'user', body: 'old chat', createdAt: '', seq: 1 }], anchoredVersion: 0 }],
+        events: [],
+      }),
+    );
     const forced = (await (await post(`${hub.info.url}/api/repos`, { cwd: frontend, positional: [], watch: false, force: true })).json()) as typeof again;
     expect(forced.reused).toBe(false);
     expect(forced.session).toBe('s2');
+    const threads = (await (await fetch(`${forced.url}/api/threads`)).json()) as { threads: unknown[] };
+    expect(threads.threads).toEqual([]);
+  });
+
+  it('names a forced pull request review after the PR, so PRs never share a conversation', () => {
+    const taken = (s: string) => s === 's2';
+    expect(forcedSession(['#42'], taken)).toBe('pr-42');
+    expect(forcedSession(['https://github.com/o/r/pull/7'], taken)).toBe('pr-7');
+    expect(forcedSession(['o/r#12'], taken)).toBe('pr-12');
+    expect(forcedSession([], taken)).toBe('s3');
+    expect(forcedSession(['main..feature'], () => false)).toBe('s2');
   });
 
   it('lists every review for the switcher, marking the one asked from', async () => {
