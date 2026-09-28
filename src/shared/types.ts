@@ -52,6 +52,46 @@ export interface DiffPayload {
   author: string;
   /** a caveat about how the diff was built, e.g. `gh` was missing so a PR's base is a guess */
   notice?: string;
+  /** where this diff sits on the branch view's commit chain, when it is one of its rows */
+  chain?: ChainPosition;
+}
+
+/**
+ * Where a diff sits on the branch view's chain: from the commit the branch was
+ * created from (`base`, a full sha — the merge base with the base branch) up to
+ * a commit of the branch (`to`, a full sha) or the working tree (`to: null`).
+ */
+export interface ChainPosition {
+  base: string;
+  to: string | null;
+}
+
+/** One commit of the branch view's chain, newest first. */
+export interface CommitListing {
+  sha: string;
+  short: string;
+  subject: string;
+  author: string;
+  /** author date, ISO 8601 */
+  date: string;
+  /** decorations: branch names and tags pointing here, `HEAD` first when it does */
+  refs: string[];
+}
+
+/** The commit chain the branch view shows: the branch's own commits, from where it was created up to HEAD. */
+export interface CommitChain {
+  /** branch the working tree is on; null when detached or the repo has no commits */
+  branch: string | null;
+  /** full sha of HEAD; null when the repo has no commits */
+  head: string | null;
+  /** the commit the branch was created from: its merge base with the base branch */
+  base: { ref: string; sha: string; short: string; subject: string } | null;
+  /** the branch's own commits, newest first, i.e. base..HEAD */
+  commits: CommitListing[];
+  /** there are older commits than the ones listed */
+  more: boolean;
+  /** other branches the chain could be measured from, most recently committed first */
+  bases: string[];
 }
 
 export type Role = 'user' | 'agent';

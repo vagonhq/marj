@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { parseUnifiedDiff } from './diff-parser.js';
-import type { DiffFile, DiffPayload } from '../shared/types.js';
+import type { ChainPosition, CommitChain, CommitListing, DiffFile, DiffPayload } from '../shared/types.js';
 
 const exec = promisify(execFile);
 const MAX_BUFFER = 256 * 1024 * 1024;
@@ -48,6 +48,8 @@ export interface DiffTarget {
   pr?: number;
   /** something the reviewer should know about how this target was built, e.g. `gh` was missing so the PR base is a guess */
   notice?: string;
+  /** which row of the branch view this target is, when it is one */
+  chain?: ChainPosition;
 }
 
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
@@ -99,7 +101,16 @@ async function rangeTarget(cwd: string, a: string, b: string, exact: boolean): P
     // unrelated histories: there is no branch point, so the tips are all we have
     return { args: [a, b], mode: `${a} → ${b} (no merge base)`, includeUntracked: false, oldRev: a, newRev: b };
   }
-  return { args: [`${a}...${b}`], mode: `${a}...${b}`, includeUntracked: false, oldRev: base, newRev: b, reviewedBranch: b };
+  const tip = (await git(cwd, ['rev-parse', `${b}^{commit}`])).trim();
+  return {
+    args: [`${a}...${b}`],
+    mode: `${a}...${b}`,
+    includeUntracked: false,
+    oldRev: base,
+    newRev: b,
+    reviewedBranch: (await isBranch(cwd, b)) ? b : null,
+    chain: { base, to: tip },
+  };
 }
 
 /**
@@ -109,22 +120,120 @@ async function rangeTarget(cwd: string, a: string, b: string, exact: boolean): P
  * re-anchor, instead of being invisible until committed. Falls back to a commit
  * range when there is no merge base.
  */
-async function liveBranchTarget(cwd: string, base: string, here: string): Promise<DiffTarget> {
+async function liveBranchTarget(cwd: string, base: string, here: string | null): Promise<DiffTarget> {
   if (!(await isCommitish(cwd, base))) throw new GitError(`unknown revision: ${base}`);
   let mergeBase: string;
   try {
     mergeBase = (await git(cwd, ['merge-base', base, 'HEAD'])).trim();
   } catch {
-    return rangeTarget(cwd, base, here, false);
+    return rangeTarget(cwd, base, here ?? 'HEAD', false);
   }
   return {
     args: [mergeBase],
-    mode: `${base}...${here} (working tree)`,
+    mode: `${base}...${here ?? 'HEAD'} (working tree)`,
     includeUntracked: true,
     oldRev: mergeBase,
     newRev: null,
     reviewedBranch: here,
+    chain: { base: mergeBase, to: null },
   };
+}
+
+async function isAncestor(cwd: string, ancestor: string, descendant: string): Promise<boolean> {
+  try {
+    await git(cwd, ['merge-base', '--is-ancestor', ancestor, descendant]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** `origin/main` when the remote has it, else the local `main` — the branch every other branch is measured from. */
+async function defaultBaseRef(cwd: string): Promise<string | null> {
+  const remote = 'origin';
+  const name = await defaultBranch(cwd, remote);
+  for (const ref of [`${remote}/${name}`, name]) {
+    if (await isBranch(cwd, ref)) return ref;
+  }
+  return null;
+}
+
+/** Local and remote branches, most recently committed first, without HEAD's own. */
+async function candidateBases(cwd: string, except: string | null): Promise<string[]> {
+  const out = await git(cwd, [
+    'for-each-ref',
+    '--sort=-committerdate',
+    '--count=200',
+    '--format=%(refname:short)%09%(refname)',
+    'refs/heads',
+    'refs/remotes',
+  ]).catch(() => '');
+  return out
+    .split('\n')
+    .map((line) => line.split('\t'))
+    // origin/HEAD shortens to a bare "origin": not a branch, just where the remote's default points
+    .filter(([short, full]) => short && short !== except && !full?.endsWith('/HEAD'))
+    .map(([short]) => short);
+}
+
+/**
+ * The commit chain of the branch view: the branch's own commits, newest first,
+ * from the commit it was created from (its merge base with `base`, the default
+ * branch unless asked otherwise) up to HEAD, with what points at each.
+ */
+export async function listCommits(cwd: string, opts: { base?: string; limit?: number; skip?: number } = {}): Promise<CommitChain> {
+  const limit = Math.min(Math.max(opts.limit ?? 50, 1), 500);
+  const skip = Math.max(opts.skip ?? 0, 0);
+  const branch = await currentBranch(cwd);
+  const bases = await candidateBases(cwd, branch);
+  if (!(await isCommitish(cwd, 'HEAD'))) return { branch, head: null, base: null, commits: [], more: false, bases };
+  const head = (await git(cwd, ['rev-parse', 'HEAD'])).trim();
+
+  let baseRef = opts.base ?? (await defaultBaseRef(cwd));
+  // standing on the base branch itself: what is not pushed yet is the branch's own
+  if (!opts.base && baseRef === branch) {
+    baseRef = await git(cwd, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']).then((r) => r.trim()).catch(() => baseRef);
+  }
+  if (baseRef && !(await isCommitish(cwd, baseRef))) throw new GitError(`unknown revision: ${baseRef}`);
+  let base: CommitChain['base'] = null;
+  if (baseRef) {
+    const sha = (await git(cwd, ['merge-base', baseRef, 'HEAD']).catch(() => '')).trim();
+    if (sha) {
+      const [short, subject] = (await git(cwd, ['log', '-1', '--format=%h%x1f%s', sha])).trim().split('\x1f');
+      base = { ref: baseRef, sha, short, subject };
+    }
+  }
+
+  // one record per commit, fields split on \x1f, records on \x1e, so a subject with a newline cannot break parsing
+  const out = await git(cwd, [
+    'log',
+    `--max-count=${limit + 1}`,
+    `--skip=${skip}`,
+    '--decorate=short',
+    '--format=%H%x1f%h%x1f%s%x1f%an%x1f%aI%x1f%D%x1e',
+    base ? `${base.sha}..HEAD` : 'HEAD',
+    '--',
+  ]);
+  const commits: CommitListing[] = out
+    .split('\x1e')
+    .map((record) => record.replace(/^\n/, ''))
+    .filter((record) => record.includes('\x1f'))
+    .map((record) => {
+      const [sha, short, subject, author, date, decorations] = record.split('\x1f');
+      const refs = (decorations ?? '')
+        .split(',')
+        .map((r) => r.trim())
+        .filter(Boolean)
+        .flatMap((r) => {
+          // "HEAD -> main" is HEAD and the branch; "tag: v1" is a tag
+          const arrow = r.match(/^HEAD -> (.+)$/);
+          if (arrow) return ['HEAD', arrow[1]];
+          return [r.replace(/^tag: /, '')];
+        });
+      return { sha, short, subject, author, date, refs };
+    });
+  const more = commits.length > limit;
+  return { branch, head, base, commits: commits.slice(0, limit), more, bases };
 }
 
 export interface PullRequestRef {
@@ -391,9 +500,9 @@ export async function resolveTarget(
 
   if (positional.length === 0) {
     const hasHead = await isCommitish(cwd, 'HEAD');
-    return hasHead
-      ? { args: ['HEAD'], mode: 'working tree vs HEAD', includeUntracked: true, oldRev: 'HEAD', newRev: null }
-      : { args: [], mode: 'working tree (no commits yet)', includeUntracked: true, newRev: null };
+    if (!hasHead) return { args: [], mode: 'working tree (no commits yet)', includeUntracked: true, newRev: null };
+    const head = (await git(cwd, ['rev-parse', 'HEAD'])).trim();
+    return { args: ['HEAD'], mode: 'working tree vs HEAD', includeUntracked: true, oldRev: 'HEAD', newRev: null, chain: { base: head, to: null } };
   }
 
   if (positional.length === 1) {
@@ -412,8 +521,8 @@ export async function resolveTarget(
     // `marj develop` on a feature branch: review the branch as a PR into develop.
     // Live against the working tree so fixes show, unless --exact was asked for.
     const here = await currentBranch(cwd);
-    if (here && here !== arg && (await isBranch(cwd, arg))) {
-      return exact ? rangeTarget(cwd, arg, here, true) : liveBranchTarget(cwd, arg, here);
+    if (here !== arg && (await isBranch(cwd, arg))) {
+      return exact ? rangeTarget(cwd, arg, here ?? 'HEAD', true) : liveBranchTarget(cwd, arg, here);
     }
     if (await isCommitish(cwd, arg)) {
       const subject = (await git(cwd, ['log', '-1', '--format=%h %s', arg])).trim();
@@ -490,6 +599,7 @@ export async function computeDiff(
     computedAt: new Date().toISOString(),
     author: await authorName(repoRoot),
     ...(target.notice ? { notice: target.notice } : {}),
+    ...(target.chain ? { chain: target.chain } : {}),
   };
 }
 

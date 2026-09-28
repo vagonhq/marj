@@ -834,6 +834,75 @@ tr.line.flash td { animation: flash-row 1.6s ease-out; }
 .repo-menu-sub { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--fgColor-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 
+/* ---------- branch view: the commit chain in the header ---------- */
+
+.chain-menu { min-width: 420px; max-width: 600px; }
+.chain-row { position: relative; padding: 5px 10px 5px 8px; }
+.chain-rail {
+  position: relative;
+  align-self: stretch;
+  width: 16px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* the line of the chain runs through every row's rail; the first and last rows clip it */
+.chain-rail::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  bottom: -6px;
+  left: 7px;
+  width: 2px;
+  background: var(--borderColor-default);
+}
+.chain-worktree .chain-rail::before { top: 50%; }
+.chain-fork .chain-rail::before { bottom: 50%; }
+.chain-dot {
+  position: relative;
+  z-index: 1;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--fgColor-muted);
+  border: 2px solid var(--overlay-bgColor, var(--bgColor-default));
+  box-sizing: content-box;
+}
+.chain-dot.hollow { background: var(--overlay-bgColor, var(--bgColor-default)); border: 2px solid var(--fgColor-muted); width: 8px; height: 8px; }
+.chain-row.selected .chain-dot { background: var(--fgColor-accent); border-color: var(--fgColor-accent); box-shadow: 0 0 0 3px var(--bgColor-accent-muted); }
+.chain-row.selected .chain-dot.hollow { background: var(--fgColor-accent); }
+.chain-row.in-range .chain-dot { background: var(--fgColor-accent); }
+.chain-row.in-range .chain-rail::before { background: var(--fgColor-accent); }
+/* the picked commit: the chain is accent from the fork point up to it and plain above it */
+.chain-row.selected:not(.chain-worktree) .chain-rail::before { background: linear-gradient(var(--borderColor-default) 50%, var(--fgColor-accent) 50%); }
+.chain-dot.fork { width: 8px; height: 8px; border-radius: 2px; transform: rotate(45deg); background: var(--fgColor-muted); border-color: var(--overlay-bgColor, var(--bgColor-default)); }
+.chain-row.in-range .chain-dot.fork { background: var(--fgColor-accent); }
+.chain-fork { cursor: default; opacity: 0.85; }
+.chain-fork:hover { background: transparent; }
+.chain-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.chain-base {
+  max-width: 220px;
+  height: 22px;
+  padding: 0 4px;
+  font: 12px var(--font-mono);
+  color: var(--fgColor-default);
+  background: var(--bgColor-inset, var(--bgColor-muted));
+  border: 1px solid var(--borderColor-default);
+  border-radius: var(--borderRadius-small);
+}
+.chain-row.in-range { background: var(--bgColor-accent-muted); }
+.chain-row.selected { background: var(--bgColor-accent-muted); }
+.chain-row.current { color: var(--fgColor-default); cursor: default; }
+.chain-row .repo-menu-name { font-weight: 500; max-width: 100%; }
+.chain-sha { flex: none; font: 12px var(--font-mono); color: var(--fgColor-muted); }
+.chain-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chain-worktree .repo-menu-name { font-weight: 600; }
+.chain-worktree .repo-menu-name svg { color: var(--fgColor-muted); flex: none; }
+.chain-more { padding: 4px 10px 6px 8px; }
+.chain-ellipsis { position: relative; z-index: 1; font-size: 14px; line-height: 1; color: var(--fgColor-muted); background: var(--overlay-bgColor, var(--bgColor-default)); }
+.chain-origin { border-top: 1px solid var(--borderColor-default); margin-top: 4px; padding-top: 8px; }
+
 /* ---------- pull request picker in the header ---------- */
 
 .pr-search-field {

@@ -138,7 +138,8 @@ top (also `curl -s <url>/api/diff | jq -r .mode`).
   reviewing the branch you are on (`… (working tree)` in the label) — diff against the files on
   disk, so your edit appears within a second. This is the normal case.
 - A committed range or PR you are **not** standing on — `marj <a>..<b>` of another branch, a
-  commit, or `marj <pr-url>` — diffs commit to commit. A working-tree edit is real but **will not
+  commit, `marj <pr-url>`, or a commit picked in the header's **branch view** (`<base>...<sha>`
+  in the label) — diffs commit to commit. A working-tree edit is real but **will not
   appear in that diff**. Say so in your reply: the change was made, but this review compares
   commits, so it shows once committed (or start `marj` on the working tree to fix live). Never
   keep editing trying to make it appear.

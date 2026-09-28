@@ -169,6 +169,49 @@ describe('the hub', () => {
     expect(fromFe.find((s) => s.current)?.id).toBe(id);
   });
 
+  it('re-points a review from the branch view and keeps the registration in step', async () => {
+    const status = (await (await fetch(`${hub.info.url}/api/hub`)).json()) as { repos: string[] };
+    const id = status.repos.find((r) => r.startsWith('backend'))!;
+    const base = `${hub.info.url}/r/${id}`;
+    const root = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: backend }).toString().trim();
+
+    // the top row: the working tree, as the review already is
+    let diff = (await (await fetch(`${base}/api/diff`)).json()) as { mode: string; chain?: { base: string; to: string | null }; files: { path: string }[] };
+    expect(diff.chain).toEqual({ base: root, to: null });
+
+    execFileSync('sh', ['-c', "printf 'x\\n' > second.rb"], { cwd: backend });
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'add', 'second.rb'], { cwd: backend });
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'second'], { cwd: backend });
+    const chain = (await (await fetch(`${base}/api/commits?base=${root}`)).json()) as {
+      branch: string;
+      head: string;
+      base: { sha: string; subject: string };
+      commits: { sha: string; short: string; subject: string }[];
+    };
+    expect(chain.branch).toBe('main');
+    expect(chain.base).toMatchObject({ sha: root, subject: 'init' });
+    expect(chain.commits.map((c) => c.subject)).toEqual(['second']);
+    expect(chain.head).toBe(chain.commits[0].sha);
+
+    // a commit row: the branch from its fork point up to that commit — the uncommitted edit is no longer in the diff
+    const res = await post(`${base}/api/target`, { positional: [`${root}...${chain.commits[0].short}`] });
+    expect(res.status).toBe(200);
+    const picked = (await res.json()) as { mode: string; chain: { base: string; to: string | null } | null };
+    expect(picked.chain).toEqual({ base: root, to: chain.commits[0].sha });
+    diff = (await (await fetch(`${base}/api/diff`)).json()) as typeof diff;
+    expect(diff.files.map((f) => f.path)).toEqual(['second.rb']);
+
+    const regs = (await (await fetch(`${hub.info.url}/api/repos`)).json()) as { id: string; positional: string[] }[];
+    expect(regs.find((r) => r.id === id)?.positional).toEqual([`${root}...${chain.commits[0].short}`]);
+
+    // back to the top of the chain
+    await post(`${base}/api/target`, { positional: [] });
+    diff = (await (await fetch(`${base}/api/diff`)).json()) as typeof diff;
+    expect(diff.chain).toEqual({ base: chain.head, to: null });
+    expect((await post(`${base}/api/target`, { positional: 'nope' })).status).toBe(400);
+    expect((await post(`${base}/api/target`, { positional: ['no-such-rev...HEAD'] })).status).toBe(400);
+  });
+
   it('lists its registrations so an upgrading CLI can replay them', async () => {
     const regs = (await (await fetch(`${hub.info.url}/api/repos`)).json()) as { id: string; cwd: string; positional: string[]; session?: string }[];
     expect(regs.map((r) => r.cwd).sort()).toEqual([backend, frontend, frontend].sort());

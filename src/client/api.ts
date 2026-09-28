@@ -1,4 +1,4 @@
-import type { DiffPayload, Intent, PrListing, ServerEvent, ServerListing, ServerInfo, Thread, WorktreeState } from '../shared/types';
+import type { ChainPosition, CommitChain, DiffPayload, Intent, PrListing, ServerEvent, ServerListing, ServerInfo, Thread, WorktreeState } from '../shared/types';
 
 /** The hub serves each review under /r/<id>; every call stays inside that prefix. */
 export const BASE = (window.location.pathname.match(/^\/r\/[^/]+/) ?? [''])[0];
@@ -53,6 +53,15 @@ export const api = {
   checkout: () => json<{ branch: string; mode: string }>('/api/checkout', { method: 'POST' }),
   /** this repo's pull requests matching what was typed in the picker */
   prs: (query: string) => json<PrListing[]>(`/api/prs?q=${encodeURIComponent(query)}`),
+  /** the branch view's commit chain: the branch's own commits since it left `base` (the default branch when omitted) */
+  commits: (base: string | null, skip = 0, limit = 50) =>
+    json<CommitChain>(`/api/commits?skip=${skip}&limit=${limit}${base ? `&base=${encodeURIComponent(base)}` : ''}`),
+  /** re-point this review in place, with what `marj` itself accepts: `["main"]`, `["main...<sha>"]`, `[]` */
+  setTarget: (positional: string[]) =>
+    json<{ mode: string; version: number; chain: ChainPosition | null }>('/api/target', {
+      method: 'POST',
+      body: JSON.stringify({ positional }),
+    }),
   /**
    * Review a pull request: the hub registers it as its own session of this repo,
    * so the current review keeps its threads. Lives on the hub itself, not under

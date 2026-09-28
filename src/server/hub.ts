@@ -316,6 +316,11 @@ export async function startHub(opts: HubOptions = {}): Promise<{ info: HubInfo; 
         watch: body.watch !== false,
         listServers: (current) => listServers(current),
         onRefreshError,
+        // a review re-pointed from the browser must come back the same way after a hub restart
+        onTargetChange: (patch) => {
+          const reg = registrations.get(id);
+          if (reg) registrations.set(id, { ...reg, ...patch });
+        },
       });
       contexts.set(id, ctx);
       registrations.set(id, { ...body, session: session ?? undefined, force: false, ownerPid });

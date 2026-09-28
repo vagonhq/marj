@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { computeDiff, resolveTarget } from '../src/server/git.js';
+import { computeDiff, listCommits, resolveTarget } from '../src/server/git.js';
 
 let repo: string;
 
@@ -103,9 +103,48 @@ describe('review targets', () => {
     expect(files).toEqual(['added:main.txt']);
   });
 
+  it('says where on the branch chain a range sits: from the fork point to the tip', async () => {
+    const a = run('rev-parse', 'HEAD~1');
+    const b = run('rev-parse', 'HEAD');
+    expect((await paths(['main..feature'])).target.chain).toEqual({ base: a, to: b });
+    expect((await paths(['main..feature'])).target.reviewedBranch).toBe('feature');
+    expect((await paths([`main...${b.slice(0, 7)}`])).target.chain).toEqual({ base: a, to: b });
+    expect((await paths([`main...${b.slice(0, 7)}`])).target.reviewedBranch).toBeNull();
+    expect((await paths(['main'])).target.chain).toEqual({ base: a, to: null });
+    expect((await paths([])).target.chain).toEqual({ base: b, to: null });
+    expect((await paths([b])).target.chain).toBeUndefined();
+  });
+
   it('three dots are passed through as written', async () => {
     const { target } = await paths(['main...feature']);
     expect(target.args).toEqual(['main...feature']);
+  });
+});
+
+describe('the commit chain of the branch view', () => {
+  it("lists the branch's own commits since it left the base branch, with what points at them", async () => {
+    const chain = await listCommits(repo);
+    expect(chain.branch).toBe('feature');
+    expect(chain.head).toBe(run('rev-parse', 'HEAD'));
+    expect(chain.base).toMatchObject({ ref: 'main', sha: run('rev-parse', 'HEAD~1'), subject: 'A' });
+    expect(chain.commits.map((c) => c.subject)).toEqual(['B']);
+    expect(chain.commits[0].refs).toEqual(['HEAD', 'feature']);
+    expect(chain.commits[0].author).toBe('t');
+    expect(chain.more).toBe(false);
+    expect(chain.bases).toContain('main');
+    expect(chain.bases).not.toContain('feature');
+    expect(chain.bases).not.toContain('origin');
+  });
+
+  it('measures from another base when asked, and pages', async () => {
+    const root = run('rev-list', '--max-parents=0', 'HEAD');
+    const all = await listCommits(repo, { base: root, limit: 1 });
+    expect(all.base?.sha).toBe(root);
+    expect(all.commits.map((c) => c.subject)).toEqual(['B']);
+    expect(all.more).toBe(false);
+    const same = await listCommits(repo, { base: 'feature' });
+    expect(same.commits).toEqual([]);
+    await expect(listCommits(repo, { base: 'no-such-branch' })).rejects.toThrow(/unknown revision/);
   });
 });
 

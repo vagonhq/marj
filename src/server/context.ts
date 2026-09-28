@@ -10,6 +10,7 @@ import {
   diffFromRaw,
   git,
   hasHead,
+  listCommits,
   readSideFile,
   resolveTarget,
   touchedSince,
@@ -47,6 +48,8 @@ export interface ContextOptions {
   listServers: (currentId: string) => Promise<ServerListing[]>;
   /** a diff refresh threw; the hub uses this to notice it can no longer spawn processes */
   onRefreshError?: (err: unknown) => void;
+  /** the browser re-pointed the review (branch view); the hub keeps its registration in step for replays */
+  onTargetChange?: (patch: { positional: string[]; staged: boolean; exact: boolean }) => void;
 }
 
 /**
@@ -73,9 +76,11 @@ export async function createRepoContext(opts: ContextOptions): Promise<RepoConte
   /** files modified after this are the fixes of this review, not pre-existing local edits */
   const startedAt = new Date();
 
+  /** how the review was asked for; the branch view can re-point it in place */
+  let asked = { positional: opts.positional, staged: opts.staged === true, exact: opts.exact === true };
   let target: DiffTarget = { args: [], mode: 'stdin', includeUntracked: false };
   if (!opts.stdinDiff) {
-    target = await resolveTarget(repoRoot, opts.positional, { staged: opts.staged, exact: opts.exact });
+    target = await resolveTarget(repoRoot, asked.positional, { staged: asked.staged, exact: asked.exact });
   }
 
   let diff: DiffPayload = opts.stdinDiff
@@ -286,10 +291,47 @@ export async function createRepoContext(opts: ContextOptions): Promise<RepoConte
     try {
       const branch = await checkoutReviewed(repoRoot, target);
       if (!opts.stdinDiff) {
-        target = await resolveTarget(repoRoot, opts.positional, { staged: opts.staged, exact: opts.exact });
+        target = await resolveTarget(repoRoot, asked.positional, { staged: asked.staged, exact: asked.exact });
       }
       await refresh();
       res.json({ branch, mode: diff.mode });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  });
+
+  /** The commit chain of the branch view: the branch's own commits since it left `base`, newest first. */
+  router.get('/api/commits', async (req, res) => {
+    try {
+      const limit = Number(req.query.limit ?? 50) || 50;
+      const skip = Number(req.query.skip ?? 0) || 0;
+      const base = typeof req.query.base === 'string' && req.query.base ? req.query.base : undefined;
+      res.json(await listCommits(repoRoot, { base, limit, skip }));
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  });
+
+  /**
+   * Re-point this review, in place, at what the branch view picked: `["main"]`
+   * for the branch as a PR into main, live against the working tree;
+   * `["main...<sha>"]` for the branch up to one of its commits — anything
+   * `marj` itself accepts. Threads stay and re-anchor against the new diff,
+   * and the address does not change.
+   */
+  router.post('/api/target', async (req, res) => {
+    if (opts.stdinDiff) return res.status(400).json({ error: 'this review was read from stdin and cannot be re-pointed' });
+    const { positional, staged, exact } = req.body ?? {};
+    if (!Array.isArray(positional) || !positional.every((p) => typeof p === 'string')) {
+      return res.status(400).json({ error: 'positional must be a list of revisions' });
+    }
+    try {
+      const next = { positional: positional as string[], staged: staged === true, exact: exact === true };
+      target = await resolveTarget(repoRoot, next.positional, { staged: next.staged, exact: next.exact });
+      asked = next;
+      opts.onTargetChange?.(next);
+      await refresh();
+      res.json({ mode: diff.mode, version: diff.version, chain: diff.chain ?? null });
     } catch (err) {
       res.status(400).json({ error: (err as Error).message });
     }

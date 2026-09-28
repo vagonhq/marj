@@ -27,6 +27,7 @@ import {
   type WorktreeState,
 } from '../shared/types';
 import { api, subscribe } from './api.js';
+import { BranchView } from './components/BranchView.js';
 import { ChatPanel } from './components/ChatPanel.js';
 import { FileCard } from './components/FileCard.js';
 import { FileTree } from './components/FileTree.js';
@@ -446,6 +447,16 @@ export function App() {
 
   const scrollToFile = useCallback((path: string) => jumpTo(`file-${path}`, 'start'), []);
 
+  /** the branch view re-pointed the review: a new diff, so fold its generated files afresh and drop the draft */
+  const retarget = useCallback(() => {
+    collapsedInitialised.current = false;
+    setDraft(null);
+    setActiveFile(null);
+    window.scrollTo({ top: 0 });
+    void loadDiff();
+    void loadWorktree();
+  }, [loadDiff, loadWorktree]);
+
   /**
    * A `path:line` link in the chat. Unfold the file, land on the line if the
    * diff shows it (new side first, old side for deletions), else on the file
@@ -501,6 +512,12 @@ export function App() {
           </span>
           <span className="crumb-sep">/</span>
           <RepoSwitcher name={repoName || '…'} repoRoot={diff?.repoRoot} />
+          {diff && diff.mode !== 'stdin' && (
+            <>
+              <span className="crumb-sep">/</span>
+              <BranchView chain={diff.chain} mode={diff.mode} worktree={worktree} onTargetChanged={retarget} />
+            </>
+          )}
           <span className="crumb-sep">/</span>
           <span className="mode">{diff?.mode ?? 'loading'}</span>
           {diff?.notice && (
